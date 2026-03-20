@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: printer
+      POSTGRES_USER: printer
+      POSTGRES_PASSWORD: printer
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U printer -d printer"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  be:
+    build: ./be
+    env_file:
+      - ./be/.env
+    devices:
+      - /dev/usb/lp0:/dev/usb/lp0
+    group_add:
+      - "7"   # lp group GID on most Linux systems
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: printer
+      DB_USER: printer
+      DB_PASSWORD: printer
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  fe:
+    build: ./fe
+    ports:
+      - "60021:80"
+    depends_on:
+      - be
+    restart: unless-stopped
+
+volumes:
+  pgdata:

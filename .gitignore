@@ -1,0 +1,27 @@
+# Environment files
+**/.env
+**/.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Node
+node_modules/
+e2e/test-results/
+e2e/playwright-report/
+
+# macOS
+.DS_Store
+
+# Screenshots / temp files
+*.png
+*.jpg
+*.jpeg
