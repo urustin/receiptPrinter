@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>에픽-태스크 배열</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f7;
+      color: #1d1d1f;
+      min-height: 100vh;
+    }
+
+    /* ── Login ─────────────────────────────────────── */
+    #login-screen {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: #f5f5f7;
+      z-index: 100;
+    }
+
+    .login-card {
+      background: #fff;
+      border-radius: 18px;
+      padding: 48px 40px;
+      text-align: center;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      max-width: 360px;
+      width: 90%;
+    }
+
+    .login-card .icon { font-size: 40px; margin-bottom: 16px; }
+    .login-card h1 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+    .login-card p  { color: #6e6e73; font-size: 14px; margin-bottom: 32px; }
+
+    .google-btn {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%; padding: 12px 20px;
+      border: 1.5px solid #d2d2d7; border-radius: 10px;
+      background: #fff; font-size: 15px; font-weight: 500;
+      cursor: pointer; color: #1d1d1f; text-decoration: none;
+      transition: background 0.15s;
+    }
+    .google-btn:hover { background: #f5f5f7; }
+
+    /* ── Header ─────────────────────────────────────── */
+    header {
+      position: sticky; top: 0;
+      background: rgba(255,255,255,0.88);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid #d2d2d7;
+      padding: 0 24px;
+      height: 52px;
+      display: flex; align-items: center; justify-content: space-between;
+      z-index: 10;
+    }
+
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .header-left a {
+      font-size: 13px; color: #0071e3; text-decoration: none; font-weight: 500;
+    }
+    .header-left a:hover { text-decoration: underline; }
+    header h1 { font-size: 16px; font-weight: 600; }
+
+    .sign-out-btn {
+      padding: 5px 14px;
+      border: 1px solid #d2d2d7; border-radius: 8px;
+      background: #fff; font-size: 13px;
+      cursor: pointer; color: #1d1d1f;
+      transition: background 0.15s;
+    }
+    .sign-out-btn:hover { background: #f5f5f7; }
+
+    /* ── Main layout ─────────────────────────────────── */
+    main { padding: 24px; }
+
+    .columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    @media (max-width: 768px) {
+      .columns { grid-template-columns: 1fr; }
+    }
+
+    .col-header {
+      font-size: 12px; font-weight: 600;
+      color: #6e6e73; text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 12px; padding: 0 2px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .col-count {
+      background: #e8e8ed; color: #6e6e73;
+      font-size: 11px; font-weight: 600;
+      padding: 1px 7px; border-radius: 10px;
+    }
+
+    /* ── Epic cards ──────────────────────────────────── */
+    .epic-card {
+      background: hsl(270, 40%, 95%);
+      border: 1.5px solid hsl(270, 35%, 82%);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 14px;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .epic-card.drag-over {
+      border-color: #0071e3;
+      box-shadow: 0 0 0 3px rgba(0,113,227,0.12);
+    }
+
+    .epic-meta {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      margin-bottom: 10px; gap: 8px;
+    }
+
+    .epic-title {
+      font-size: 15px; font-weight: 600;
+      line-height: 1.4;
+    }
+
+    .epic-key-badge {
+      font-size: 11px; font-weight: 500;
+      color: #6e6e73; background: hsl(270, 35%, 88%);
+      padding: 2px 8px; border-radius: 6px;
+      white-space: nowrap; flex-shrink: 0;
+    }
+
+    .epic-tasks {
+      margin-left: 10px;
+      padding-left: 12px;
+      border-left: 2px solid #e8e8ed;
+      min-height: 36px;
+      transition: background 0.15s, border-color 0.15s;
+      border-radius: 0 6px 6px 0;
+    }
+
+    .epic-tasks.drag-over {
+      background: rgba(0,113,227,0.04);
+      border-color: #0071e3;
+    }
+
+    /* ── Unassigned column ──────────────────────────── */
+    .drop-zone {
+      min-height: 200px;
+      border-radius: 14px;
+      border: 1.5px dashed #d2d2d7;
+      padding: 12px;
+      background: rgba(255,255,255,0.6);
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .drop-zone.drag-over {
+      border-color: #0071e3;
+      background: rgba(0,113,227,0.04);
+    }
+
+    /* ── Task cards ──────────────────────────────────── */
+    .task-card {
+      background: hsl(215, 40%, 93%);
+      border: 1px solid hsl(215, 35%, 82%);
+      border-radius: 10px;
+      padding: 9px 12px;
+      margin-bottom: 7px;
+      cursor: grab;
+      display: flex; align-items: center; gap: 9px;
+      transition: background 0.12s, box-shadow 0.12s, opacity 0.15s;
+      user-select: none;
+    }
+
+    .task-card:last-child { margin-bottom: 0; }
+
+    .task-card:hover {
+      background: hsl(215, 40%, 87%);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+
+    .task-card.dragging { opacity: 0.35; cursor: grabbing; }
+
+    .drag-handle {
+      color: #c7c7cc; font-size: 13px; flex-shrink: 0;
+      line-height: 1;
+    }
+
+    .task-info { flex: 1; min-width: 0; }
+
+    .task-key {
+      font-size: 11px; color: #aeaeb2; font-weight: 500;
+      margin-bottom: 1px;
+    }
+
+    .task-title {
+      font-size: 13px; font-weight: 500;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .status-badge {
+      font-size: 11px; font-weight: 500;
+      padding: 2px 7px; border-radius: 20px;
+      flex-shrink: 0; white-space: nowrap;
+    }
+
+    .s-todo       { background: #e8e8ed; color: #3a3a3c; }
+    .s-inprogress { background: #e8f0fe; color: #1a56db; }
+    .s-done       { background: #e4f4eb; color: #1a7f4b; }
+
+    /* ── States ─────────────────────────────────────── */
+    .loading-msg {
+      text-align: center; padding: 64px 24px;
+      color: #aeaeb2; font-size: 14px;
+    }
+
+    .empty-msg {
+      text-align: center; padding: 16px 8px;
+      color: #c7c7cc; font-size: 12px; font-style: italic;
+    }
+
+    /* ── Refresh button ─────────────────────────────── */
+    .refresh-btn {
+      padding: 5px 14px;
+      border: 1px solid #d2d2d7; border-radius: 8px;
+      background: #fff; font-size: 13px;
+      cursor: pointer; color: #1d1d1f;
+      transition: background 0.15s;
+    }
+    .refresh-btn:hover { background: #f5f5f7; }
+    .refresh-btn:disabled { opacity: 0.5; cursor: default; }
+
+    /* ── Transition popup ───────────────────────────── */
+    #transition-popup {
+      position: fixed;
+      background: #fff;
+      border: 1px solid #d2d2d7;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.14);
+      padding: 6px;
+      z-index: 300;
+      min-width: 160px;
+      display: none;
+    }
+
+    #transition-popup.show { display: block; }
+
+    .transition-item {
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.12s;
+    }
+
+    .transition-item:hover { background: #f5f5f7; }
+
+    .transition-loading {
+      padding: 10px 14px;
+      font-size: 13px;
+      color: #aeaeb2;
+    }
+
+    .status-badge { cursor: pointer; user-select: none; }
+    .status-badge:hover { opacity: 0.8; }
+
+    /* ── Toast ──────────────────────────────────────── */
+    #toast {
+      position: fixed; bottom: 28px; left: 50%;
+      transform: translateX(-50%);
+      background: #1d1d1f; color: #fff;
+      padding: 9px 20px; border-radius: 20px;
+      font-size: 13px; opacity: 0;
+      transition: opacity 0.25s;
+      pointer-events: none; z-index: 200;
+      white-space: nowrap;
+    }
+    #toast.show       { opacity: 1; }
+    #toast.show.error { background: #b91c1c; }
+  </style>
+</head>
+<body>
+
+<!-- Login Screen -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="icon">🖨️</div>
+    <h1>Printer</h1>
+    <p>에픽-태스크 배열</p>
+    <a class="google-btn" href="/auth/login">
+      <svg width="18" height="18" viewBox="0 0 48 48">
+        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+      </svg>
+      Google로 계속하기
+    </a>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app" style="display:none">
+  <header>
+    <div class="header-left">
+      <a href="/">← 메인</a>
+      <h1>에픽-태스크 배열</h1>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="refresh-btn" id="refresh-btn" onclick="loadData()">새로고침</button>
+      <button class="sign-out-btn" onclick="logout()">로그아웃</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="loading-msg" class="loading-msg">Jira에서 데이터를 불러오는 중...</div>
+
+    <div id="board" style="display:none">
+      <div class="columns">
+        <!-- Left: Epics with tasks -->
+        <div>
+          <div class="col-header">
+            에픽별 태스크
+            <span class="col-count" id="epic-count">0</span>
+          </div>
+          <div id="epics-list"></div>
+        </div>
+
+        <!-- Right: Unassigned tasks -->
+        <div>
+          <div class="col-header">
+            미지정 태스크
+            <span class="col-count" id="unassigned-count">0</span>
+          </div>
+          <div class="drop-zone" id="unassigned-zone"
+               ondragover="onDragOver(event, this)"
+               ondragleave="onDragLeave(this)"
+               ondrop="onDrop(event, null)">
+            <div id="unassigned-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="transition-popup"></div>
+<div id="toast"></div>
+
+<script src="/auth.js"></script>
+<script>
+  // ── State ──────────────────────────────────────────
+  let epics = [];
+  let tasks = [];
+  let draggingKey = null;
+
+  // ── Auth init (keeps current URL path) ────────────
+  function initPage() {
+    const params = new URLSearchParams(location.search);
+    const tok = params.get('token');
+    if (tok) {
+      saveToken(tok);
+      history.replaceState({}, '', '/arrange_task');
+    }
+    if (getToken()) {
+      _showApp();
+      loadData();
+    } else {
+      _showLogin();
+    }
+  }
+
+  // ── Data loading ───────────────────────────────────
+  async function loadData() {
+    const btn = document.getElementById('refresh-btn');
+    if (btn) btn.disabled = true;
+    document.getElementById('loading-msg').style.display = 'block';
+    document.getElementById('board').style.display = 'none';
+
+    try {
+      const res = await authFetch('/jira/epics-tasks');
+      if (!res.ok) throw new Error(res.status);
+      const data = await res.json();
+      epics = data.epics || [];
+      tasks = data.tasks || [];
+      render();
+      document.getElementById('loading-msg').style.display = 'none';
+      document.getElementById('board').style.display = 'block';
+      prefetchTransitions(tasks.map(t => t.key));
+    } catch (e) {
+      document.getElementById('loading-msg').textContent = '불러오기 실패. 새로고침 해주세요.';
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function prefetchTransitions(keys) {
+    for (const key of keys) {
+      if (transitionsCache[key]) continue;
+      try {
+        const res = await authFetch(`/jira/issues/${encodeURIComponent(key)}/transitions`);
+        if (res.ok) transitionsCache[key] = await res.json();
+      } catch (_) {}
+    }
+  }
+
+  // ── Render ─────────────────────────────────────────
+  function statusClass(s) {
+    const l = s.toLowerCase();
+    if (l.includes('done') || l.includes('완료') || l.includes('closed')) return 's-done';
+    if (l.includes('progress') || l.includes('진행') || l.includes('review')) return 's-inprogress';
+    return 's-todo';
+  }
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function taskCardHtml(task) {
+    const sc = statusClass(task.status);
+    return `
+      <div class="task-card"
+           draggable="true"
+           data-key="${esc(task.key)}"
+           ondragstart="onDragStart(event, this)"
+           ondragend="onDragEnd(this)">
+        <span class="drag-handle">⠿</span>
+        <div class="task-info">
+          <div class="task-key">${esc(task.key)}</div>
+          <div class="task-title" title="${esc(task.summary)}">${esc(task.summary)}</div>
+        </div>
+        <span class="status-badge ${sc}" onclick="openTransitionPopup(event, '${esc(task.key)}')">${esc(task.status)}</span>
+      </div>`;
+  }
+
+  function render() {
+    // Build map: epicKey → tasks[]
+    const epicMap = {};
+    for (const e of epics) epicMap[e.key] = [];
+    const unassigned = [];
+
+    for (const t of tasks) {
+      if (t.epic_key && epicMap[t.epic_key] !== undefined) {
+        epicMap[t.epic_key].push(t);
+      } else {
+        unassigned.push(t);
+      }
+    }
+
+    // Count
+    document.getElementById('epic-count').textContent = epics.length;
+    document.getElementById('unassigned-count').textContent = unassigned.length;
+
+    // Left column: epics
+    const epicsList = document.getElementById('epics-list');
+    if (epics.length === 0) {
+      epicsList.innerHTML = '<div class="empty-msg">에픽 없음</div>';
+    } else {
+      epicsList.innerHTML = epics.map(ep => {
+        const epicTasks = epicMap[ep.key] || [];
+        const tasksHtml = epicTasks.length > 0
+          ? epicTasks.map(taskCardHtml).join('')
+          : '<div class="empty-msg">태스크 없음</div>';
+        return `
+          <div class="epic-card"
+               ondragover="onDragOver(event, this)"
+               ondragleave="onDragLeave(this)"
+               ondrop="onDrop(event, '${esc(ep.key)}')">
+            <div class="epic-meta">
+              <div class="epic-title">${esc(ep.summary)}</div>
+              <span class="epic-key-badge">${esc(ep.key)}</span>
+            </div>
+            <div class="epic-tasks"
+                 ondragover="onDragOver(event, this)"
+                 ondragleave="onDragLeave(this)"
+                 ondrop="onDropStop(event, '${esc(ep.key)}')">
+              ${tasksHtml}
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    // Right column: unassigned
+    const unassignedList = document.getElementById('unassigned-list');
+    unassignedList.innerHTML = unassigned.length > 0
+      ? unassigned.map(taskCardHtml).join('')
+      : '<div class="empty-msg">미지정 태스크 없음</div>';
+  }
+
+  // ── Drag & Drop ────────────────────────────────────
+  function onDragStart(event, el) {
+    draggingKey = el.dataset.key;
+    event.dataTransfer.setData('text/plain', draggingKey);
+    event.dataTransfer.effectAllowed = 'move';
+    setTimeout(() => el.classList.add('dragging'), 0);
+  }
+
+  function onDragEnd(el) {
+    el.classList.remove('dragging');
+    document.querySelectorAll('.drag-over').forEach(e => e.classList.remove('drag-over'));
+    draggingKey = null;
+  }
+
+  function onDragOver(event, el) {
+    event.preventDefault();
+    event.stopPropagation();
+    el.classList.add('drag-over');
+  }
+
+  function onDragLeave(el) {
+    el.classList.remove('drag-over');
+  }
+
+  // Drop on epic-tasks div (innermost target)
+  function onDropStop(event, epicKey) {
+    event.stopPropagation();
+    onDrop(event, epicKey);
+  }
+
+  async function onDrop(event, epicKey) {
+    event.preventDefault();
+    document.querySelectorAll('.drag-over').forEach(e => e.classList.remove('drag-over'));
+
+    const taskKey = event.dataTransfer.getData('text/plain') || draggingKey;
+    if (!taskKey) return;
+
+    const task = tasks.find(t => t.key === taskKey);
+    if (!task) return;
+    if (task.epic_key === epicKey) return; // no-op
+
+    const prevEpic = task.epic_key;
+
+    // Optimistic update
+    task.epic_key = epicKey;
+    render();
+
+    try {
+      const res = await authFetch(`/jira/tasks/${encodeURIComponent(taskKey)}/epic`, {
+        method: 'PATCH',
+        body: JSON.stringify({ epic_key: epicKey }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const label = epicKey ? `${taskKey} → ${epicKey}` : `${taskKey} 에픽 해제`;
+      showToast(label);
+    } catch (e) {
+      showToast('업데이트 실패', 'error');
+      task.epic_key = prevEpic; // revert
+      render();
+    }
+  }
+
+  // ── Transition popup ───────────────────────────────
+  let popupIssueKey = null;
+  const transitionsCache = {};
+
+  async function openTransitionPopup(event, issueKey) {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const popup = document.getElementById('transition-popup');
+    popupIssueKey = issueKey;
+    popup.classList.add('show');
+    positionPopup(popup, event.target);
+
+    if (transitionsCache[issueKey]) {
+      renderPopup(transitionsCache[issueKey]);
+      return;
+    }
+
+    popup.innerHTML = '<div class="transition-loading">로딩 중...</div>';
+    try {
+      const res = await authFetch(`/jira/issues/${encodeURIComponent(issueKey)}/transitions`);
+      const transitions = await res.json();
+      transitionsCache[issueKey] = transitions;
+      renderPopup(transitions);
+    } catch (e) {
+      popup.innerHTML = '<div class="transition-loading">로드 실패</div>';
+    }
+  }
+
+  function renderPopup(transitions) {
+    const popup = document.getElementById('transition-popup');
+    if (!transitions.length) {
+      popup.innerHTML = '<div class="transition-loading">가능한 전환 없음</div>';
+      return;
+    }
+    popup.innerHTML = transitions.map(t =>
+      `<div class="transition-item" onclick="applyTransition('${esc(t.id)}', '${esc(t.name)}')">${esc(t.name)}</div>`
+    ).join('');
+  }
+
+  function positionPopup(popup, anchor) {
+    const rect = anchor.getBoundingClientRect();
+    const scrollY = window.scrollY;
+    popup.style.top = (rect.bottom + scrollY + 6) + 'px';
+    popup.style.left = rect.left + 'px';
+    // Adjust if goes off right edge
+    const pw = 180;
+    if (rect.left + pw > window.innerWidth) {
+      popup.style.left = (window.innerWidth - pw - 8) + 'px';
+    }
+  }
+
+  async function applyTransition(transitionId, transitionName) {
+    const popup = document.getElementById('transition-popup');
+    popup.classList.remove('show');
+
+    const issueKey = popupIssueKey;
+    const task = tasks.find(t => t.key === issueKey);
+    if (!task) return;
+
+    const prevStatus = task.status;
+    task.status = transitionName;
+    delete transitionsCache[issueKey]; // invalidate cache after transition
+    render();
+
+    try {
+      const res = await authFetch(`/jira/issues/${encodeURIComponent(issueKey)}/transitions`, {
+        method: 'POST',
+        body: JSON.stringify({ transition_id: transitionId }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      showToast(`${issueKey} → ${transitionName}`);
+    } catch (e) {
+      showToast('상태 변경 실패', 'error');
+      task.status = prevStatus;
+      render();
+    }
+  }
+
+  document.addEventListener('click', (e) => {
+    const popup = document.getElementById('transition-popup');
+    if (!popup.contains(e.target)) popup.classList.remove('show');
+  });
+
+  // ── Toast ──────────────────────────────────────────
+  let toastTimer = null;
+  function showToast(msg, type) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = type === 'error' ? 'show error' : 'show';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.className = ''; }, 2800);
+  }
+
+  // ── Boot ───────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', initPage);
+</script>
+</body>
+</html>
