@@ -114,6 +114,7 @@ function initDrag(list) {
   function onDown(e) {
     if (e.target.closest('button')) return;
     e.preventDefault();
+    window.getSelection()?.removeAllRanges();
     const li = e.currentTarget;
     dragging = li;
 

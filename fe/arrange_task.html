@@ -127,6 +127,22 @@
       line-height: 1.4;
     }
 
+    .epic-drag-handle {
+      color: #b0bec5; cursor: grab;
+      flex-shrink: 0; font-size: 15px; line-height: 1;
+      padding: 2px; touch-action: none; user-select: none;
+    }
+    .epic-drag-handle:hover { color: #6e6e73; }
+    .epic-drag-handle:active { cursor: grabbing; }
+    .epic-meta .epic-title { cursor: grab; touch-action: none; }
+    .epic-meta .epic-title:active { cursor: grabbing; }
+    .epic-card.epic-dragging { opacity: 0.35; }
+    .epic-drop-line {
+      height: 2px; background: #0071e3;
+      border-radius: 2px; margin: 4px 0;
+      pointer-events: none;
+    }
+
     .epic-key-badge {
       font-size: 11px; font-weight: 500;
       color: #6e6e73; background: hsl(270, 35%, 88%);
@@ -177,6 +193,8 @@
       transition: background 0.12s, box-shadow 0.12s, opacity 0.15s;
       user-select: none;
     }
+    .task-card * { cursor: inherit; }
+    .epic-card * { cursor: default; }
 
     .task-card:last-child { margin-bottom: 0; }
 
@@ -365,7 +383,7 @@
   // ── State ──────────────────────────────────────────
   let epics = [];
   let tasks = [];
-  const TASK_LIMIT = 4;
+  const TASK_LIMIT = 6;
   let expandedEpics = {};
 
   // ── Auth init (keeps current URL path) ────────────
@@ -418,6 +436,20 @@
     }
   }
 
+  // ── Status sort ────────────────────────────────────
+  function taskStatusPriority(status) {
+    const s = (status || '').toLowerCase();
+    if (s.includes('always')) return 0;
+    if (s.includes('progress') || s.includes('진행') || s.includes('review')) return 1;
+    if (s.includes('idea')) return 3;
+    if (s.includes('done') || s.includes('완료') || s.includes('closed') || s.includes('resolved')) return 4;
+    return 2; // To Do / default
+  }
+
+  function sortTasksByStatus(arr) {
+    arr.sort((a, b) => taskStatusPriority(a.status) - taskStatusPriority(b.status));
+  }
+
   // ── Render ─────────────────────────────────────────
   function statusClass(s) {
     const l = s.toLowerCase();
@@ -459,6 +491,10 @@
       }
     }
 
+    // Sort by status priority
+    for (const key of Object.keys(epicMap)) sortTasksByStatus(epicMap[key]);
+    sortTasksByStatus(unassigned);
+
     // Count
     document.getElementById('epic-count').textContent = epics.length;
     document.getElementById('unassigned-count').textContent = unassigned.length;
@@ -483,7 +519,10 @@
         return `
           <div class="epic-card" data-key="${esc(ep.key)}">
             <div class="epic-meta">
-              <div class="epic-title">${esc(ep.summary)}</div>
+              <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0">
+                <span class="epic-drag-handle" onpointerdown="startEpicDrag(event,'${esc(ep.key)}')">⠿</span>
+                <div class="epic-title" onpointerdown="startEpicDrag(event,'${esc(ep.key)}')">${esc(ep.summary)}</div>
+              </div>
               <span class="epic-key-badge">${esc(ep.key)}</span>
             </div>
             <div class="epic-tasks">
@@ -502,12 +541,64 @@
 
   function toggleEpicExpand(epicKey) { expandedEpics[epicKey] = !expandedEpics[epicKey]; render(); }
 
+  // ── Epic drag (reorder epics) ──────────────────────
+  let epicDragState = null;
+
+  function startEpicDrag(event, key) {
+    event.preventDefault();
+    event.stopPropagation();
+    window.getSelection()?.removeAllRanges();
+    const fromIdx = epics.findIndex(e => e.key === key);
+    if (fromIdx === -1) return;
+    const epicEl = document.querySelector(`.epic-card[data-key="${CSS.escape(key)}"]`);
+    if (!epicEl) return;
+    epicEl.setPointerCapture(event.pointerId);
+    epicEl.classList.add('epic-dragging');
+    epicDragState = { key, fromIdx, toIdx: fromIdx, epicEl };
+    epicEl.addEventListener('pointermove', onEpicMove);
+    epicEl.addEventListener('pointerup', onEpicEnd);
+    epicEl.addEventListener('pointercancel', onEpicEnd);
+  }
+
+  function onEpicMove(event) {
+    if (!epicDragState) return;
+    document.querySelectorAll('.epic-drop-line').forEach(e => e.remove());
+    const epicsList = document.getElementById('epics-list');
+    const epicCards = Array.from(epicsList.querySelectorAll('.epic-card:not(.epic-dragging)'));
+    let toIdx = epicCards.length;
+    for (let i = 0; i < epicCards.length; i++) {
+      const r = epicCards[i].getBoundingClientRect();
+      if (event.clientY < r.top + r.height / 2) { toIdx = i; break; }
+    }
+    const line = document.createElement('div');
+    line.className = 'epic-drop-line';
+    if (toIdx < epicCards.length) epicsList.insertBefore(line, epicCards[toIdx]);
+    else epicsList.appendChild(line);
+    epicDragState.toIdx = toIdx;
+  }
+
+  function onEpicEnd() {
+    if (!epicDragState) return;
+    const { key, fromIdx, toIdx, epicEl } = epicDragState;
+    epicDragState = null;
+    epicEl.classList.remove('epic-dragging');
+    epicEl.removeEventListener('pointermove', onEpicMove);
+    epicEl.removeEventListener('pointerup', onEpicEnd);
+    epicEl.removeEventListener('pointercancel', onEpicEnd);
+    document.querySelectorAll('.epic-drop-line').forEach(e => e.remove());
+    if (toIdx === fromIdx) return;
+    const [moved] = epics.splice(fromIdx, 1);
+    epics.splice(toIdx, 0, moved);
+    render();
+  }
+
   // ── Card drag (pointer events) ─────────────────────
   let cardDragState = null;
 
   function startCardDrag(event, key, epicKey) {
     if (event.target.closest('button, input, a, .status-badge')) return;
     event.preventDefault();
+    window.getSelection()?.removeAllRanges();
     epicKey = epicKey || null;
     const epicTasks = tasks.filter(t => epicKey ? t.epic_key === epicKey : !t.epic_key);
     const fromIdx = epicTasks.findIndex(t => t.key === key);

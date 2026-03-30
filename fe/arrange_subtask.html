@@ -117,6 +117,21 @@
       box-shadow: 0 0 0 3px rgba(0,113,227,0.12);
     }
 
+    .task-drag-handle {
+      color: #b0bec5; cursor: grab;
+      flex-shrink: 0; font-size: 15px; line-height: 1;
+      padding: 2px 4px 2px 0;
+      touch-action: none; user-select: none;
+    }
+    .task-drag-handle:hover { color: #6e6e73; }
+    .task-drag-handle:active { cursor: grabbing; }
+    .epic-card.task-container-dragging { opacity: 0.35; }
+    .container-drop-line {
+      height: 2px; background: #0071e3;
+      border-radius: 2px; margin: 3px 0;
+      pointer-events: none;
+    }
+
     .epic-meta {
       display: flex; align-items: flex-start; justify-content: space-between;
       margin-bottom: 10px; gap: 8px;
@@ -124,8 +139,10 @@
 
     .epic-title {
       font-size: 15px; font-weight: 600;
-      line-height: 1.4;
+      line-height: 1.4; cursor: grab;
+      touch-action: none;
     }
+    .epic-title:active { cursor: grabbing; }
 
     .epic-key-badge {
       font-size: 11px; font-weight: 500;
@@ -177,6 +194,8 @@
       transition: background 0.12s, box-shadow 0.12s, opacity 0.15s;
       user-select: none;
     }
+    .task-card * { cursor: inherit; }
+    .epic-card * { cursor: default; }
 
     .task-card:last-child { margin-bottom: 0; }
 
@@ -459,6 +478,15 @@
     return l.includes('done') || l.includes('완료') || l.includes('closed') || l.includes('resolved');
   }
 
+  function statusPriority(status) {
+    const s = (status || '').toLowerCase();
+    if (s.includes('always')) return 0;
+    if (s.includes('progress') || s.includes('진행') || s.includes('review')) return 1;
+    if (s.includes('idea')) return 3;
+    if (isDoneStatus(status)) return 4;
+    return 2; // To Do / default
+  }
+
   function render() {
     // Tasks excluding TEMP
     const visibleTasks = tempKey
@@ -467,6 +495,7 @@
 
     const activeTasks = visibleTasks.filter(t => !isDoneStatus(t.status));
     const doneTasks   = visibleTasks.filter(t =>  isDoneStatus(t.status));
+    activeTasks.sort((a, b) => statusPriority(a.status) - statusPriority(b.status));
 
     // Build map: taskKey → subtasks[]
     const taskMap = {};
@@ -480,6 +509,10 @@
         taskMap[st.parent_key].push(st);
       }
     }
+    for (const key of Object.keys(taskMap)) {
+      taskMap[key].sort((a, b) => statusPriority(a.status) - statusPriority(b.status));
+    }
+    tempSubtasks.sort((a, b) => statusPriority(a.status) - statusPriority(b.status));
 
     document.getElementById('task-count').textContent = activeTasks.length;
     document.getElementById('temp-count').textContent = tempSubtasks.length;
@@ -499,7 +532,10 @@
       return `
         <div class="epic-card${isDone ? ' done-task' : ''}" data-key="${esc(t.key)}">
           <div class="epic-meta">
-            <div class="epic-title">${esc(t.summary)}</div>
+            <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0">
+              <span class="task-drag-handle" onpointerdown="startTaskDrag(event,'${esc(t.key)}')">⠿</span>
+              <div class="epic-title" onpointerdown="startTaskDrag(event,'${esc(t.key)}')">${esc(t.summary)}</div>
+            </div>
             <span class="epic-key-badge">${esc(t.key)}</span>
           </div>
           <div class="epic-tasks">
@@ -535,12 +571,83 @@
   function toggleDoneTasks() { showDoneTasks = !showDoneTasks; render(); }
   function toggleTaskExpand(key) { expandedTasks[key] = !expandedTasks[key]; render(); }
 
+  // ── Task container drag (reorder tasks) ───────────
+  let taskDragState = null;
+
+  function renderedTaskOrder() {
+    const vis = tempKey ? parentTasks.filter(t => t.key !== tempKey) : parentTasks;
+    const active = vis.filter(t => !isDoneStatus(t.status));
+    const done   = vis.filter(t =>  isDoneStatus(t.status));
+    return { active, done };
+  }
+
+  function startTaskDrag(event, key) {
+    event.preventDefault();
+    event.stopPropagation();
+    window.getSelection()?.removeAllRanges();
+    const { active, done } = renderedTaskOrder();
+    const rendered = [...active, ...(showDoneTasks ? done : [])];
+    const fromIdx = rendered.findIndex(t => t.key === key);
+    if (fromIdx === -1) return;
+    const cardEl = document.querySelector(`#tasks-list .epic-card[data-key="${CSS.escape(key)}"]`);
+    if (!cardEl) return;
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    cardEl.classList.add('task-container-dragging');
+    taskDragState = { key, fromIdx, toIdx: fromIdx, cardEl, handle };
+    handle.addEventListener('pointermove', onTaskMove);
+    handle.addEventListener('pointerup', onTaskEnd);
+    handle.addEventListener('pointercancel', onTaskEnd);
+  }
+
+  function onTaskMove(event) {
+    if (!taskDragState) return;
+    const tasksList = document.getElementById('tasks-list');
+    document.querySelectorAll('.container-drop-line').forEach(e => e.remove());
+    const others = Array.from(tasksList.querySelectorAll('.epic-card:not(.task-container-dragging)'));
+    let toIdx = others.length;
+    for (let i = 0; i < others.length; i++) {
+      const r = others[i].getBoundingClientRect();
+      if (event.clientY < r.top + r.height / 2) { toIdx = i; break; }
+    }
+    const line = document.createElement('div');
+    line.className = 'container-drop-line';
+    if (toIdx < others.length) tasksList.insertBefore(line, others[toIdx]);
+    else tasksList.appendChild(line);
+    taskDragState.toIdx = toIdx;
+  }
+
+  function onTaskEnd() {
+    if (!taskDragState) return;
+    const { key, fromIdx, toIdx, cardEl, handle } = taskDragState;
+    taskDragState = null;
+    cardEl.classList.remove('task-container-dragging');
+    handle.removeEventListener('pointermove', onTaskMove);
+    handle.removeEventListener('pointerup', onTaskEnd);
+    handle.removeEventListener('pointercancel', onTaskEnd);
+    document.querySelectorAll('.container-drop-line').forEach(e => e.remove());
+    if (toIdx === fromIdx) return;
+    const { active, done } = renderedTaskOrder();
+    const rendered = [...active, ...(showDoneTasks ? done : [])];
+    const [moved] = rendered.splice(fromIdx, 1);
+    rendered.splice(toIdx, 0, moved);
+    const newActive = rendered.filter(t => !isDoneStatus(t.status));
+    const newDone   = showDoneTasks ? rendered.filter(t => isDoneStatus(t.status)) : done;
+    const newOrder  = [...newActive, ...newDone];
+    const tempTask  = tempKey ? parentTasks.find(t => t.key === tempKey) : null;
+    parentTasks.splice(0, parentTasks.length, ...newOrder);
+    if (tempTask) parentTasks.push(tempTask);
+    render();
+    authFetch('/jira/order', { method: 'POST', body: JSON.stringify({ keys: newOrder.map(t => t.key) }) }).catch(() => {});
+  }
+
   // ── Card drag (pointer events) ─────────────────────
   let cardDragState = null;
 
   function startCardDrag(event, key, parentKey) {
     if (event.target.closest('button, input, a, .status-badge')) return;
     event.preventDefault();
+    window.getSelection()?.removeAllRanges();
     // parentKey is the current parent task key (tempKey for TEMP zone)
     const containerSubs = subtasks.filter(s => s.parent_key === parentKey);
     const fromIdx = containerSubs.findIndex(s => s.key === key);

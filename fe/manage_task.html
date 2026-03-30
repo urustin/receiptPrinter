@@ -130,6 +130,7 @@
       cursor: grab; user-select: none; touch-action: none;
     }
     .item-card:active { cursor: grabbing; }
+    .item-card * { cursor: inherit; }
     .item-card:last-child { margin-bottom: 0; }
 
     .epic-card { background: hsl(270, 40%, 95%); border-color: hsl(270, 35%, 82%); }
@@ -491,15 +492,23 @@
       </div>`;
   }
 
-  function sortDoneToBottom(arr) {
-    const isD = i => i.status_done || statusClass(i.status, i.status_done) === 's-done';
-    arr.splice(0, arr.length, ...arr.filter(i => !isD(i)), ...arr.filter(i => isD(i)));
+  function statusPriority(item) {
+    if (item.status_done || statusClass(item.status, item.status_done) === 's-done') return 4;
+    const s = (item.status || '').toLowerCase();
+    if (s.includes('always')) return 0;
+    if (s.includes('progress') || s.includes('진행') || s.includes('review')) return 1;
+    if (s.includes('idea')) return 3;
+    return 2; // To Do / default
+  }
+
+  function sortByStatus(arr) {
+    arr.sort((a, b) => statusPriority(a) - statusPriority(b));
   }
 
   function render() {
-    sortDoneToBottom(epics);
-    sortDoneToBottom(tasks);
-    sortDoneToBottom(subtasks);
+    sortByStatus(epics);
+    sortByStatus(tasks);
+    sortByStatus(subtasks);
 
     document.getElementById('epic-count').textContent    = epics.length;
     document.getElementById('task-count').textContent    = tasks.length;
@@ -825,6 +834,7 @@
   function startDrag(event, type, key) {
     if (event.target.closest('button, input, a, .status-badge')) return;
     event.preventDefault();
+    window.getSelection()?.removeAllRanges();
     const items = type === 'epic' ? epics : type === 'task' ? tasks : subtasks;
     const fromIdx = items.findIndex(i => i.key === key);
     if (fromIdx === -1) return;

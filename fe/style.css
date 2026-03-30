@@ -252,6 +252,7 @@ body {
   user-select: none;
 }
 #progress-list .job-item:active { cursor: grabbing; }
+#progress-list .job-item * { cursor: inherit; }
 
 .job-title {
   flex: 1;
