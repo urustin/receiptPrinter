@@ -16,6 +16,7 @@ from psycopg2.extras import RealDictCursor
 
 from auth import router as auth_router, require_auth
 import jira as jira_client
+from jira import JiraConfig
 
 KST = timezone(timedelta(hours=9))
 
@@ -81,6 +82,19 @@ def init_db():
                     sort_order INTEGER NOT NULL DEFAULT 0
                 )
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS user_jira_config (
+                    email            TEXT PRIMARY KEY,
+                    jira_base_url    TEXT NOT NULL DEFAULT '',
+                    jira_email       TEXT NOT NULL DEFAULT '',
+                    jira_api_token   TEXT NOT NULL DEFAULT '',
+                    jira_project_key TEXT NOT NULL DEFAULT '',
+                    jira_parent_key  TEXT NOT NULL DEFAULT '',
+                    jira_board_id    TEXT NOT NULL DEFAULT '',
+                    jira_temp_key    TEXT NOT NULL DEFAULT '',
+                    ticket_mode      TEXT NOT NULL DEFAULT 'SUBTASK'
+                )
+            """)
         conn.commit()
 
 
@@ -143,6 +157,130 @@ def _text_to_image(lines: list[tuple[str, int, bool]]) -> Image.Image:
     return img
 
 
+# ── Per-user Jira config ───────────────────────────────────────────────────────
+
+def get_user_jira_cfg(email: str) -> "JiraConfig | None":
+    """Return JiraConfig from DB for this user, or None if not configured."""
+    try:
+        with get_db() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM user_jira_config WHERE email = %s", (email,))
+                row = cur.fetchone()
+        if row and row["jira_api_token"]:
+            return JiraConfig(
+                base_url=row["jira_base_url"].rstrip("/"),
+                email=row["jira_email"],
+                api_token=row["jira_api_token"],
+                project_key=row["jira_project_key"],
+                parent_key=row["jira_parent_key"],
+                board_id=row["jira_board_id"],
+                temp_key=row["jira_temp_key"],
+                ticket_mode=(row["ticket_mode"] or "SUBTASK").upper(),
+            )
+    except Exception:
+        pass
+    return None
+
+
+def require_jira_cfg(user) -> JiraConfig:
+    """Get Jira config for user (DB first, then env fallback). Raises 400 if unconfigured."""
+    cfg = get_user_jira_cfg(user["email"])
+    if cfg:
+        return cfg
+    env = jira_client._env_cfg()
+    if env:
+        return env
+    raise HTTPException(
+        status_code=400,
+        detail="Jira가 설정되지 않았습니다. 설정 페이지에서 Jira 정보를 입력해 주세요."
+    )
+
+
+# ── Settings ──────────────────────────────────────────────────────────────────
+
+@app.get("/settings/jira")
+def get_jira_settings(user=Depends(require_auth)):
+    try:
+        with get_db() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM user_jira_config WHERE email = %s", (user["email"],))
+                row = cur.fetchone()
+    except Exception:
+        row = None
+    if not row:
+        return {"configured": False}
+    return {
+        "configured":       bool(row["jira_api_token"]),
+        "jira_base_url":    row["jira_base_url"],
+        "jira_email":       row["jira_email"],
+        "jira_api_token":   "••••••••" if row["jira_api_token"] else "",
+        "jira_project_key": row["jira_project_key"],
+        "jira_parent_key":  row["jira_parent_key"],
+        "jira_board_id":    row["jira_board_id"],
+        "jira_temp_key":    row["jira_temp_key"],
+        "ticket_mode":      row["ticket_mode"],
+    }
+
+
+class JiraSettingsRequest(BaseModel):
+    jira_base_url: str
+    jira_email: str
+    jira_api_token: str = ""
+    jira_project_key: str = ""
+    jira_parent_key: str = ""
+    jira_board_id: str = ""
+    jira_temp_key: str = ""
+    ticket_mode: str = "SUBTASK"
+
+
+@app.put("/settings/jira")
+def save_jira_settings(body: JiraSettingsRequest, user=Depends(require_auth)):
+    new_token = body.jira_api_token.strip()
+    keep_existing = not new_token or new_token == "••••••••"
+
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            if keep_existing:
+                cur.execute("""
+                    INSERT INTO user_jira_config
+                        (email, jira_base_url, jira_email, jira_api_token,
+                         jira_project_key, jira_parent_key, jira_board_id, jira_temp_key, ticket_mode)
+                    VALUES (%s,%s,%s,'',%s,%s,%s,%s,%s)
+                    ON CONFLICT (email) DO UPDATE SET
+                        jira_base_url    = EXCLUDED.jira_base_url,
+                        jira_email       = EXCLUDED.jira_email,
+                        jira_project_key = EXCLUDED.jira_project_key,
+                        jira_parent_key  = EXCLUDED.jira_parent_key,
+                        jira_board_id    = EXCLUDED.jira_board_id,
+                        jira_temp_key    = EXCLUDED.jira_temp_key,
+                        ticket_mode      = EXCLUDED.ticket_mode
+                """, (user["email"], body.jira_base_url, body.jira_email,
+                      body.jira_project_key, body.jira_parent_key,
+                      body.jira_board_id, body.jira_temp_key, body.ticket_mode))
+            else:
+                cur.execute("""
+                    INSERT INTO user_jira_config
+                        (email, jira_base_url, jira_email, jira_api_token,
+                         jira_project_key, jira_parent_key, jira_board_id, jira_temp_key, ticket_mode)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (email) DO UPDATE SET
+                        jira_base_url    = EXCLUDED.jira_base_url,
+                        jira_email       = EXCLUDED.jira_email,
+                        jira_api_token   = EXCLUDED.jira_api_token,
+                        jira_project_key = EXCLUDED.jira_project_key,
+                        jira_parent_key  = EXCLUDED.jira_parent_key,
+                        jira_board_id    = EXCLUDED.jira_board_id,
+                        jira_temp_key    = EXCLUDED.jira_temp_key,
+                        ticket_mode      = EXCLUDED.ticket_mode
+                """, (user["email"], body.jira_base_url, body.jira_email, new_token,
+                      body.jira_project_key, body.jira_parent_key,
+                      body.jira_board_id, body.jira_temp_key, body.ticket_mode))
+        conn.commit()
+    return {"ok": True}
+
+
+# ── Print jobs ────────────────────────────────────────────────────────────────
+
 @app.get("/history")
 def history(user=Depends(require_auth)):
     with get_db() as conn:
@@ -179,7 +317,8 @@ def mark_done(job_id: int, user=Depends(require_auth)):
         conn.commit()
 
     if row and row[0]:
-        jira_client.mark_done(row[0])
+        cfg = get_user_jira_cfg(user["email"])
+        jira_client.mark_done(row[0], cfg)
 
     return {"ok": True}
 
@@ -198,7 +337,8 @@ def delete_job(job_id: int, user=Depends(require_auth)):
         conn.commit()
 
     if row and row[0]:
-        jira_client.delete_issue(row[0])
+        cfg = get_user_jira_cfg(user["email"])
+        jira_client.delete_issue(row[0], cfg)
 
     return {"ok": True}
 
@@ -220,31 +360,32 @@ def reorder_jobs(body: ReorderRequest, user=Depends(require_auth)):
     return {"ok": True}
 
 
+# ── Jira endpoints ────────────────────────────────────────────────────────────
+
 class AssignEpicRequest(BaseModel):
-    epic_key: str | None = None
+    epic_key: "str | None" = None
 
 
 @app.get("/jira/epics-tasks")
 def get_epics_tasks(user=Depends(require_auth)):
-    return jira_client.get_epics_and_tasks()
+    return jira_client.get_epics_and_tasks(require_jira_cfg(user))
 
 
 @app.patch("/jira/tasks/{task_key}/epic")
 def assign_task_epic(task_key: str, body: AssignEpicRequest, user=Depends(require_auth)):
-    ok = jira_client.assign_task_to_epic(task_key, body.epic_key)
-    if not ok:
+    if not jira_client.assign_task_to_epic(task_key, body.epic_key, require_jira_cfg(user)):
         raise HTTPException(status_code=500, detail="Failed to update Jira")
     return {"ok": True}
 
 
 @app.get("/jira/tasks-subtasks")
 def get_tasks_subtasks(user=Depends(require_auth)):
-    return jira_client.get_tasks_and_subtasks()
+    return jira_client.get_tasks_and_subtasks(require_jira_cfg(user))
 
 
 @app.get("/jira/issues/{issue_key}/transitions")
 def get_issue_transitions(issue_key: str, user=Depends(require_auth)):
-    return jira_client.get_transitions(issue_key)
+    return jira_client.get_transitions(issue_key, require_jira_cfg(user))
 
 
 class TransitionRequest(BaseModel):
@@ -253,8 +394,7 @@ class TransitionRequest(BaseModel):
 
 @app.post("/jira/issues/{issue_key}/transitions")
 def apply_issue_transition(issue_key: str, body: TransitionRequest, user=Depends(require_auth)):
-    ok = jira_client.apply_transition(issue_key, body.transition_id)
-    if not ok:
+    if not jira_client.apply_transition(issue_key, body.transition_id, require_jira_cfg(user)):
         raise HTTPException(status_code=500, detail="Failed to apply transition")
     return {"ok": True}
 
@@ -265,7 +405,7 @@ class AssignParentRequest(BaseModel):
 
 @app.get("/jira/all-items")
 def get_all_items(user=Depends(require_auth)):
-    data = jira_client.get_all_items()
+    data = jira_client.get_all_items(require_jira_cfg(user))
     all_keys = [i["key"] for i in data["epics"] + data["tasks"] + data["subtasks"]]
     if all_keys:
         with get_db() as conn:
@@ -304,7 +444,7 @@ class CreateItemRequest(BaseModel):
 
 @app.post("/jira/epics")
 def create_epic(body: CreateItemRequest, user=Depends(require_auth)):
-    item = jira_client.create_epic(body.title)
+    item = jira_client.create_epic(body.title, require_jira_cfg(user))
     if not item:
         raise HTTPException(status_code=500, detail="Failed to create epic")
     return item
@@ -312,7 +452,7 @@ def create_epic(body: CreateItemRequest, user=Depends(require_auth)):
 
 @app.post("/jira/tasks")
 def create_task(body: CreateItemRequest, user=Depends(require_auth)):
-    item = jira_client.create_task_item(body.title)
+    item = jira_client.create_task_item(body.title, require_jira_cfg(user))
     if not item:
         raise HTTPException(status_code=500, detail="Failed to create task")
     return item
@@ -320,7 +460,7 @@ def create_task(body: CreateItemRequest, user=Depends(require_auth)):
 
 @app.post("/jira/subtasks")
 def create_subtask(body: CreateItemRequest, user=Depends(require_auth)):
-    item = jira_client.create_subtask_item(body.title)
+    item = jira_client.create_subtask_item(body.title, require_jira_cfg(user))
     if not item:
         raise HTTPException(status_code=500, detail="Failed to create subtask")
     return item
@@ -332,47 +472,44 @@ class UpdateSummaryRequest(BaseModel):
 
 @app.patch("/jira/issues/{issue_key}/summary")
 def update_issue_summary(issue_key: str, body: UpdateSummaryRequest, user=Depends(require_auth)):
-    ok = jira_client.update_summary(issue_key, body.summary)
-    if not ok:
+    if not jira_client.update_summary(issue_key, body.summary, require_jira_cfg(user)):
         raise HTTPException(status_code=500, detail="Failed to update summary")
     return {"ok": True}
 
 
 class SetDueDateRequest(BaseModel):
-    due_date: str | None = None
+    due_date: "str | None" = None
 
 
 @app.patch("/jira/issues/{issue_key}/due-date")
 def set_issue_due_date(issue_key: str, body: SetDueDateRequest, user=Depends(require_auth)):
-    ok = jira_client.set_due_date(issue_key, body.due_date)
-    if not ok:
+    if not jira_client.set_due_date(issue_key, body.due_date, require_jira_cfg(user)):
         raise HTTPException(status_code=500, detail="Failed to set due date")
     return {"ok": True}
 
 
 @app.post("/jira/issues/{issue_key}/done")
 def done_jira_issue(issue_key: str, user=Depends(require_auth)):
-    ok = jira_client.mark_done_issue(issue_key)
-    if not ok:
+    if not jira_client.mark_done_issue(issue_key, require_jira_cfg(user)):
         raise HTTPException(status_code=500, detail="Failed to mark done")
     return {"ok": True}
 
 
 @app.delete("/jira/issues/{issue_key}")
 def delete_jira_issue(issue_key: str, user=Depends(require_auth)):
-    ok = jira_client.delete_issue(issue_key)
-    if not ok:
+    if not jira_client.delete_issue(issue_key, require_jira_cfg(user)):
         raise HTTPException(status_code=500, detail="Failed to delete issue")
     return {"ok": True}
 
 
 @app.patch("/jira/subtasks/{subtask_key}/parent")
 def assign_subtask_parent(subtask_key: str, body: AssignParentRequest, user=Depends(require_auth)):
-    ok = jira_client.assign_subtask_to_task(subtask_key, body.task_key)
-    if not ok:
+    if not jira_client.assign_subtask_to_task(subtask_key, body.task_key, require_jira_cfg(user)):
         raise HTTPException(status_code=500, detail="Failed to update Jira")
     return {"ok": True}
 
+
+# ── Print ─────────────────────────────────────────────────────────────────────
 
 class PrintRequest(BaseModel):
     title: str
@@ -399,9 +536,12 @@ def print_receipt(body: PrintRequest, user=Depends(require_auth)):
         p.text("\n")
         p.cut()
 
+        # Create Jira issue for any user who has Jira configured
+        cfg = get_user_jira_cfg(user["email"]) or jira_client._env_cfg()
+        jira_key = jira_client.create_issue(title, cfg) if cfg else None
+
         with get_db() as conn:
             with conn.cursor() as cur:
-                jira_key = jira_client.create_issue(title) if user["email"] == "urustin@gmail.com" else None
                 cur.execute(
                     "INSERT INTO print_jobs (title, printed_by, status, sort_order, jira_key)"
                     " VALUES (%s, %s, 'progress',"
