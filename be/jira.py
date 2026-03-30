@@ -130,7 +130,8 @@ def _transition_to_todo(issue_key: str, cfg: JiraConfig) -> None:
         res.raise_for_status()
         transitions = res.json().get("transitions", [])
         todo = next(
-            (t for t in transitions if t["to"]["name"].lower() == "to do"),
+            (t for t in transitions
+             if t["to"].get("statusCategory", {}).get("key") == "new"),
             None,
         )
         if todo:
@@ -193,17 +194,7 @@ def delete_issue(issue_key: str, cfg: "JiraConfig | None" = None) -> bool:
 
 
 def mark_done(issue_key: str, cfg: "JiraConfig | None" = None) -> bool:
-    c = _get_cfg(cfg)
-    try:
-        res = httpx.post(
-            f"{c.base_url}/rest/api/3/issue/{issue_key}/transitions",
-            auth=c.auth,
-            json={"transition": {"id": DONE_TRANSITION}},
-            timeout=10,
-        )
-        return res.status_code == 204
-    except Exception:
-        return False
+    return mark_done_issue(issue_key, cfg)
 
 
 def _search(jql: str, fields: str, cfg: JiraConfig, max_results: int = 100) -> list:
@@ -340,7 +331,11 @@ def get_transitions(issue_key: str, cfg: "JiraConfig | None" = None) -> list:
         )
         res.raise_for_status()
         return [
-            {"id": t["id"], "name": t["to"]["name"]}
+            {
+                "id":                  t["id"],
+                "name":                t["to"]["name"],
+                "status_category_key": t["to"].get("statusCategory", {}).get("key", ""),
+            }
             for t in res.json().get("transitions", [])
         ]
     except Exception as e:
@@ -488,9 +483,9 @@ def update_summary(issue_key: str, summary: str, cfg: "JiraConfig | None" = None
 
 def mark_done_issue(issue_key: str, cfg: "JiraConfig | None" = None) -> bool:
     transitions = get_transitions(issue_key, cfg)
-    done = next((t for t in transitions if "done" in t["name"].lower()), None)
+    done = next((t for t in transitions if t["status_category_key"] == "done"), None)
     if not done:
-        return apply_transition(issue_key, DONE_TRANSITION, cfg)
+        return False
     return apply_transition(issue_key, done["id"], cfg)
 
 
@@ -519,10 +514,7 @@ def get_printer_items(cfg: "JiraConfig | None" = None) -> list:
 
 def mark_in_progress(issue_key: str, cfg: "JiraConfig | None" = None) -> bool:
     transitions = get_transitions(issue_key, cfg)
-    inprog = next(
-        (t for t in transitions if "in progress" in t["name"].lower() or "진행" in t["name"].lower()),
-        None,
-    )
+    inprog = next((t for t in transitions if t["status_category_key"] == "indeterminate"), None)
     if not inprog:
         return False
     return apply_transition(issue_key, inprog["id"], cfg)
