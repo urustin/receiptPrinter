@@ -316,3 +316,124 @@ def assign_subtask_to_task(subtask_key: str, task_key: str) -> bool:
     except Exception as e:
         logger.error("assign_subtask_to_task error: %s", e)
         return False
+
+
+# ── manage_task helpers ────────────────────────────────────────────────────────
+
+def _fmt_issue(i: dict, include_parent: bool = False) -> dict:
+    f = i["fields"]
+    d = {
+        "key":         i["key"],
+        "summary":     f["summary"],
+        "status":      f["status"]["name"],
+        "status_done": f["status"].get("statusCategory", {}).get("key") == "done",
+        "due_date":    f.get("duedate"),
+    }
+    if include_parent:
+        p = f.get("parent")
+        d["parent_key"] = p["key"] if p else None
+    return d
+
+
+def get_all_items() -> dict:
+    """Fetch epics, tasks, and subtasks with due dates."""
+    epics_raw    = _search(f"project={_PROJECT_KEY} AND issuetype=Epic ORDER BY created DESC", "summary,status,duedate")
+    tasks_raw    = _search(f"project={_PROJECT_KEY} AND issuetype=Task ORDER BY created DESC", "summary,status,duedate")
+    subtasks_raw = _search(f"project={_PROJECT_KEY} AND issuetype=Subtask ORDER BY created DESC", "summary,status,duedate,parent")
+    return {
+        "epics":    [_fmt_issue(i) for i in epics_raw],
+        "tasks":    [_fmt_issue(i) for i in tasks_raw],
+        "subtasks": [_fmt_issue(i, True) for i in subtasks_raw],
+    }
+
+
+def create_epic(title: str) -> dict | None:
+    try:
+        res = httpx.post(
+            f"{_BASE}/rest/api/3/issue",
+            auth=_AUTH,
+            json={"fields": {"project": {"key": _PROJECT_KEY}, "summary": title, "issuetype": {"name": "Epic"}}},
+            timeout=10,
+        )
+        res.raise_for_status()
+        return {"key": res.json()["key"], "summary": title, "status": "To Do", "due_date": None}
+    except Exception as e:
+        logger.error("create_epic error: %s", e)
+        return None
+
+
+def create_task_item(title: str) -> dict | None:
+    try:
+        res = httpx.post(
+            f"{_BASE}/rest/api/3/issue",
+            auth=_AUTH,
+            json={"fields": {"project": {"key": _PROJECT_KEY}, "summary": title, "issuetype": {"name": "Task"}}},
+            timeout=10,
+        )
+        res.raise_for_status()
+        key = res.json()["key"]
+        if _BOARD_ID:
+            _move_to_board(key)
+        _transition_to_todo(key)
+        return {"key": key, "summary": title, "status": "To Do", "due_date": None}
+    except Exception as e:
+        logger.error("create_task_item error: %s", e)
+        return None
+
+
+def create_subtask_item(title: str) -> dict | None:
+    try:
+        res = httpx.post(
+            f"{_BASE}/rest/api/3/issue",
+            auth=_AUTH,
+            json={"fields": {
+                "project":   {"key": _PROJECT_KEY},
+                "parent":    {"key": _PARENT},
+                "summary":   title,
+                "issuetype": {"id": SUBTASK_TYPE_ID},
+            }},
+            timeout=10,
+        )
+        res.raise_for_status()
+        return {"key": res.json()["key"], "summary": title, "status": "To Do", "due_date": None, "parent_key": _PARENT}
+    except Exception as e:
+        logger.error("create_subtask_item error: %s", e)
+        return None
+
+
+def update_summary(issue_key: str, summary: str) -> bool:
+    try:
+        res = httpx.put(
+            f"{_BASE}/rest/api/3/issue/{issue_key}",
+            auth=_AUTH,
+            json={"fields": {"summary": summary}},
+            timeout=10,
+        )
+        return res.status_code == 204
+    except Exception as e:
+        logger.error("update_summary error: %s", e)
+        return False
+
+
+def mark_done_issue(issue_key: str) -> bool:
+    """Find the Done transition dynamically and apply it."""
+    transitions = get_transitions(issue_key)
+    done = next((t for t in transitions if "done" in t["name"].lower()), None)
+    if not done:
+        # fallback: hardcoded ID
+        return apply_transition(issue_key, DONE_TRANSITION)
+    return apply_transition(issue_key, done["id"])
+
+
+def set_due_date(issue_key: str, due_date: str | None) -> bool:
+    try:
+        res = httpx.put(
+            f"{_BASE}/rest/api/3/issue/{issue_key}",
+            auth=_AUTH,
+            json={"fields": {"duedate": due_date}},
+            timeout=10,
+        )
+        return res.status_code == 204
+    except Exception as e:
+        logger.error("set_due_date error: %s", e)
+        return False

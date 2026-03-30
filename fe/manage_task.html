@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>태스크 관리</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f7;
+      color: #1d1d1f;
+      min-height: 100vh;
+    }
+
+    /* ── Login ─────────────────────────────────────── */
+    #login-screen {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: #f5f5f7; z-index: 100;
+    }
+    .login-card {
+      background: #fff; border-radius: 18px; padding: 48px 40px;
+      text-align: center; box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      max-width: 360px; width: 90%;
+    }
+    .login-card .icon { font-size: 40px; margin-bottom: 16px; }
+    .login-card h1 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+    .login-card p  { color: #6e6e73; font-size: 14px; margin-bottom: 32px; }
+    .google-btn {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%; padding: 12px 20px;
+      border: 1.5px solid #d2d2d7; border-radius: 10px;
+      background: #fff; font-size: 15px; font-weight: 500;
+      cursor: pointer; color: #1d1d1f; text-decoration: none;
+      transition: background 0.15s;
+    }
+    .google-btn:hover { background: #f5f5f7; }
+
+    /* ── Header ─────────────────────────────────────── */
+    header {
+      position: sticky; top: 0;
+      background: rgba(255,255,255,0.88); backdrop-filter: blur(12px);
+      border-bottom: 1px solid #d2d2d7;
+      padding: 0 24px; height: 52px;
+      display: flex; align-items: center; justify-content: space-between;
+      z-index: 10;
+    }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .header-left a { font-size: 13px; color: #0071e3; text-decoration: none; font-weight: 500; }
+    .header-left a:hover { text-decoration: underline; }
+    header h1 { font-size: 16px; font-weight: 600; }
+    .header-right { display: flex; gap: 8px; align-items: center; }
+    .refresh-btn, .sign-out-btn {
+      padding: 5px 14px; border: 1px solid #d2d2d7; border-radius: 8px;
+      background: #fff; font-size: 13px; cursor: pointer; color: #1d1d1f;
+      transition: background 0.15s;
+    }
+    .refresh-btn:hover, .sign-out-btn:hover { background: #f5f5f7; }
+    .refresh-btn:disabled { opacity: 0.5; cursor: default; }
+
+    /* ── Layout ──────────────────────────────────────── */
+    main { padding: 24px; }
+    .columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px; align-items: start;
+    }
+    @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
+
+    /* ── Column header ───────────────────────────────── */
+    .col-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px; padding: 0 2px;
+    }
+    .col-title {
+      font-size: 12px; font-weight: 600;
+      color: #6e6e73; text-transform: uppercase; letter-spacing: 0.5px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .col-count {
+      background: #e8e8ed; color: #6e6e73;
+      font-size: 11px; font-weight: 600;
+      padding: 1px 7px; border-radius: 10px;
+    }
+    .add-btn {
+      width: 26px; height: 26px;
+      border: 1.5px solid #d2d2d7; border-radius: 8px;
+      background: #fff; font-size: 16px; line-height: 1;
+      cursor: pointer; color: #6e6e73;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+    .add-btn:hover { background: #f0f0f5; color: #1d1d1f; border-color: #aeaeb2; }
+
+    /* ── Add form ─────────────────────────────────────── */
+    .add-form {
+      display: flex; gap: 6px;
+      margin-bottom: 8px;
+    }
+    .add-input {
+      flex: 1; padding: 7px 10px;
+      border: 1.5px solid #0071e3; border-radius: 8px;
+      font-size: 13px; outline: none; background: #fff;
+    }
+    .add-input:disabled { opacity: 0.6; }
+    .add-confirm {
+      padding: 0 12px; background: #0071e3; color: #fff;
+      border: none; border-radius: 8px; font-size: 13px;
+      cursor: pointer; font-weight: 500;
+      transition: background 0.12s;
+    }
+    .add-confirm:hover { background: #0062c4; }
+    .add-cancel {
+      padding: 0 10px; background: none; color: #6e6e73;
+      border: 1px solid #d2d2d7; border-radius: 8px; font-size: 13px;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .add-cancel:hover { background: #f5f5f7; }
+
+    /* ── Item cards ──────────────────────────────────── */
+    .item-card {
+      border-radius: 10px; border: 1px solid;
+      padding: 9px 10px 9px 12px;
+      margin-bottom: 7px;
+      display: flex; align-items: flex-start; gap: 8px;
+      cursor: grab; user-select: none; touch-action: none;
+    }
+    .item-card:active { cursor: grabbing; }
+    .item-card:last-child { margin-bottom: 0; }
+
+    .epic-card { background: hsl(270, 40%, 95%); border-color: hsl(270, 35%, 82%); }
+    .task-card  { background: hsl(215, 40%, 93%); border-color: hsl(215, 35%, 82%); }
+    .sub-card   { background: hsl(145, 40%, 93%); border-color: hsl(145, 35%, 82%); }
+
+    .card-body { flex: 1; min-width: 0; }
+    .item-key-row {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 2px;
+    }
+    .item-key { font-size: 11px; color: #aeaeb2; font-weight: 500; }
+    .status-badge {
+      font-size: 10px; font-weight: 500;
+      padding: 1px 6px; border-radius: 20px;
+      white-space: nowrap;
+    }
+    .s-todo       { background: #e8e8ed; color: #3a3a3c; }
+    .s-inprogress { background: #e8f0fe; color: #1a56db; }
+    .s-done       { background: #e4f4eb; color: #1a7f4b; }
+
+    .item-title {
+      font-size: 13px; font-weight: 500;
+      word-break: break-word;
+    }
+    .item-due {
+      font-size: 11px; margin-top: 4px;
+      display: flex; align-items: center; gap: 3px;
+    }
+    .due-past   { color: #b91c1c; }
+    .due-today  { color: #d97706; }
+    .due-future { color: #6e6e73; }
+
+    /* Inline edit input */
+    .edit-input {
+      width: 100%; padding: 2px 6px;
+      border: 1.5px solid #0071e3; border-radius: 5px;
+      font-size: 13px; font-weight: 500;
+      outline: none; background: #fff;
+      font-family: inherit;
+    }
+
+    /* ── Card action buttons ─────────────────────────── */
+    .card-actions {
+      display: flex; gap: 2px; align-items: center;
+      flex-shrink: 0; margin-top: 1px;
+    }
+    .action-btn {
+      width: 24px; height: 24px;
+      display: flex; align-items: center; justify-content: center;
+      border: none; background: none;
+      cursor: pointer; border-radius: 6px;
+      color: #c7c7cc; padding: 0;
+      transition: color 0.12s, background 0.12s;
+    }
+    .action-btn:hover { color: #3a3a3c; background: rgba(0,0,0,0.06); }
+    .action-btn.del:hover   { color: #b91c1c; background: rgba(185,28,28,0.06); }
+    .action-btn.check:hover { color: #1a7f4b; background: rgba(26,127,75,0.08); }
+
+    .status-badge { cursor: pointer; user-select: none; }
+    .status-badge:hover { opacity: 0.8; }
+
+    /* ── Transition popup ───────────────────────────── */
+    #transition-popup {
+      position: fixed;
+      background: #fff;
+      border: 1px solid #d2d2d7; border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.14);
+      padding: 6px; z-index: 301; min-width: 160px;
+      display: none;
+    }
+    #transition-popup.show { display: block; }
+    .transition-item {
+      padding: 8px 14px; border-radius: 8px;
+      font-size: 13px; cursor: pointer;
+      white-space: nowrap; transition: background 0.12s;
+    }
+    .transition-item:hover { background: #f5f5f7; }
+    .transition-loading { padding: 10px 14px; font-size: 13px; color: #aeaeb2; }
+
+    /* ── Popups (due date) ───────────────────────────── */
+    .popup {
+      position: fixed;
+      background: #fff;
+      border: 1px solid #d2d2d7; border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.14);
+      padding: 6px; z-index: 300; min-width: 140px;
+      display: none;
+    }
+    .popup.show { display: block; }
+    .popup-item {
+      padding: 8px 14px; border-radius: 8px;
+      font-size: 13px; cursor: pointer;
+      white-space: nowrap; transition: background 0.12s;
+    }
+    .popup-item:hover { background: #f5f5f7; }
+    .popup-item-clear { color: #b91c1c; }
+    .popup-item-clear:hover { background: rgba(185,28,28,0.06); }
+    .popup-current {
+      padding: 6px 14px 4px;
+      font-size: 11px; color: #aeaeb2;
+      border-bottom: 1px solid #f0f0f0;
+      margin-bottom: 4px;
+    }
+
+    /* ── Drag ────────────────────────────────────────── */
+    .drag-handle {
+      color: #d2d2d7; cursor: grab;
+      padding: 0 6px 0 0; font-size: 15px;
+      flex-shrink: 0; align-self: center;
+      user-select: none; touch-action: none; line-height: 1;
+    }
+    .drag-handle:hover { color: #aeaeb2; }
+    .drag-handle:active { cursor: grabbing; }
+    .item-card.dragging { opacity: 0.4; }
+    .drop-line {
+      height: 2px; background: #0071e3;
+      border-radius: 2px; margin: 2px 4px;
+      pointer-events: none;
+    }
+
+    /* ── States ─────────────────────────────────────── */
+    .loading-msg { text-align: center; padding: 64px 24px; color: #aeaeb2; font-size: 14px; }
+    .empty-msg   { text-align: center; padding: 20px 8px; color: #c7c7cc; font-size: 12px; font-style: italic; }
+
+    /* ── Show more ──────────────────────────────────── */
+    .show-more-wrap { text-align: center; margin-top: 4px; }
+    .show-more-btn {
+      padding: 5px 16px; border: 1px solid #d2d2d7; border-radius: 20px;
+      background: #fff; font-size: 12px; color: #6e6e73;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .show-more-btn:hover { background: #f5f5f7; }
+
+    /* ── Toast ──────────────────────────────────────── */
+    #toast {
+      position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+      background: #1d1d1f; color: #fff;
+      padding: 9px 20px; border-radius: 20px;
+      font-size: 13px; opacity: 0; transition: opacity 0.25s;
+      pointer-events: none; z-index: 400; white-space: nowrap;
+    }
+    #toast.show       { opacity: 1; }
+    #toast.show.error { background: #b91c1c; }
+  </style>
+</head>
+<body>
+
+<!-- Login Screen -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="icon">🖨️</div>
+    <h1>Printer</h1>
+    <p>태스크 관리</p>
+    <a class="google-btn" href="/auth/login">
+      <svg width="18" height="18" viewBox="0 0 48 48">
+        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+      </svg>
+      Google로 계속하기
+    </a>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app" style="display:none">
+  <header>
+    <div class="header-left">
+      <a href="/hub">← 메인</a>
+      <h1>태스크 관리</h1>
+    </div>
+    <div class="header-right">
+      <button class="refresh-btn" id="refresh-btn" onclick="loadData()">새로고침</button>
+      <button class="sign-out-btn" onclick="logout()">로그아웃</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="loading-msg" class="loading-msg">Jira에서 데이터를 불러오는 중...</div>
+
+    <div id="board" style="display:none">
+      <div class="columns">
+
+        <!-- Epics -->
+        <div>
+          <div class="col-header">
+            <div class="col-title">에픽 <span class="col-count" id="epic-count">0</span></div>
+            <button class="add-btn" onclick="showAddForm('epic')" title="에픽 추가">+</button>
+          </div>
+          <div class="add-form" id="epic-add-form" style="display:none">
+            <input class="add-input" id="add-input-epic" placeholder="에픽 이름"
+              onkeydown="if(event.key==='Enter')confirmAdd('epic');else if(event.key==='Escape')cancelAdd()">
+            <button class="add-confirm" onclick="confirmAdd('epic')">추가</button>
+            <button class="add-cancel" onclick="cancelAdd()">✕</button>
+          </div>
+          <div id="epic-list"></div>
+        </div>
+
+        <!-- Tasks -->
+        <div>
+          <div class="col-header">
+            <div class="col-title">태스크 <span class="col-count" id="task-count">0</span></div>
+            <button class="add-btn" onclick="showAddForm('task')" title="태스크 추가">+</button>
+          </div>
+          <div class="add-form" id="task-add-form" style="display:none">
+            <input class="add-input" id="add-input-task" placeholder="태스크 이름"
+              onkeydown="if(event.key==='Enter')confirmAdd('task');else if(event.key==='Escape')cancelAdd()">
+            <button class="add-confirm" onclick="confirmAdd('task')">추가</button>
+            <button class="add-cancel" onclick="cancelAdd()">✕</button>
+          </div>
+          <div id="task-list"></div>
+        </div>
+
+        <!-- Subtasks -->
+        <div>
+          <div class="col-header">
+            <div class="col-title">서브태스크 <span class="col-count" id="subtask-count">0</span></div>
+            <button class="add-btn" onclick="showAddForm('subtask')" title="서브태스크 추가">+</button>
+          </div>
+          <div class="add-form" id="subtask-add-form" style="display:none">
+            <input class="add-input" id="add-input-subtask" placeholder="서브태스크 이름"
+              onkeydown="if(event.key==='Enter')confirmAdd('subtask');else if(event.key==='Escape')cancelAdd()">
+            <button class="add-confirm" onclick="confirmAdd('subtask')">추가</button>
+            <button class="add-cancel" onclick="cancelAdd()">✕</button>
+          </div>
+          <div id="subtask-list"></div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="popup" id="due-popup"></div>
+<div id="transition-popup"></div>
+<div id="toast"></div>
+
+<script src="/auth.js"></script>
+<script>
+  // ── State ──────────────────────────────────────────
+  let epics = [], tasks = [], subtasks = [];
+  let editState = null; // { key, handled }
+  let dueDateKey = null;
+  const VISIBLE_LIMIT = 30;
+  let expandedCols = { epic: false, task: false, subtask: false };
+
+  // ── Auth ───────────────────────────────────────────
+  function initPage() {
+    const params = new URLSearchParams(location.search);
+    const tok = params.get('token');
+    if (tok) { saveToken(tok); history.replaceState({}, '', '/manage_task'); }
+    if (getToken()) { _showApp(); loadData(); } else { _showLogin(); }
+  }
+
+  // ── Data ───────────────────────────────────────────
+  async function loadData() {
+    const btn = document.getElementById('refresh-btn');
+    if (btn) btn.disabled = true;
+    document.getElementById('loading-msg').style.display = 'block';
+    document.getElementById('board').style.display = 'none';
+    try {
+      const res = await authFetch('/jira/all-items');
+      if (!res.ok) throw new Error(res.status);
+      const data = await res.json();
+      epics    = data.epics    || [];
+      tasks    = data.tasks    || [];
+      subtasks = data.subtasks || [];
+      render();
+      document.getElementById('loading-msg').style.display = 'none';
+      document.getElementById('board').style.display = 'block';
+    } catch (e) {
+      document.getElementById('loading-msg').textContent = '불러오기 실패. 새로고침 해주세요.';
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // ── Render ─────────────────────────────────────────
+  function statusClass(s, done) {
+    if (done) return 's-done';
+    const l = s.toLowerCase();
+    if (l.includes('done') || l.includes('완료') || l.includes('closed')) return 's-done';
+    if (l.includes('progress') || l.includes('진행') || l.includes('review')) return 's-inprogress';
+    return 's-todo';
+  }
+
+  function dueDateClass(d, isDone) {
+    if (!d) return '';
+    const today = new Date().toISOString().split('T')[0];
+    if (d < today) return isDone ? 'due-future' : 'due-past';
+    if (d === today) return 'due-today';
+    return 'due-future';
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  const PENCIL_SVG = `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.499.499 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/>
+  </svg>`;
+
+  const CAL_SVG = `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5M1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4z"/>
+  </svg>`;
+
+  const X_SVG = `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708"/>
+  </svg>`;
+
+  const CHECK_SVG = `<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0"/>
+  </svg>`;
+
+  function itemCardHtml(item, type) {
+    const cls   = type === 'epic' ? 'epic-card' : type === 'task' ? 'task-card' : 'sub-card';
+    const sc    = statusClass(item.status, item.status_done);
+    const isEd  = editState && editState.key === item.key;
+
+    const titleHtml = isEd
+      ? `<input class="edit-input" id="edit-input-${esc(item.key)}"
+            value="${esc(item.summary)}"
+            onblur="commitEdit()"
+            onkeydown="handleEditKey(event, '${esc(item.key)}')">`
+      : `<div class="item-title">${esc(item.summary)}</div>`;
+
+    const isDone  = item.status_done || sc === 's-done';
+    const dueHtml = item.due_date
+      ? `<div class="item-due ${dueDateClass(item.due_date, isDone)}">${CAL_SVG} ${esc(item.due_date)}</div>`
+      : '';
+
+    return `
+      <div class="item-card ${cls}" data-key="${esc(item.key)}" onpointerdown="startDrag(event,'${type}','${esc(item.key)}')">
+        <span class="drag-handle">⠿</span>
+        <div class="card-body">
+          <div class="item-key-row">
+            <span class="item-key">${esc(item.key)}</span>
+            <span class="status-badge ${sc}" onmousedown="event.preventDefault()" onclick="openTransitionPopup(event,'${esc(item.key)}')">${esc(item.status)}</span>
+          </div>
+          ${titleHtml}
+          ${dueHtml}
+        </div>
+        <div class="card-actions">
+          <button class="action-btn check" title="완료"
+            onmousedown="event.preventDefault()"
+            onclick="markDone('${esc(item.key)}')">${CHECK_SVG}</button>
+          <button class="action-btn" title="이름 수정"
+            onmousedown="event.preventDefault()"
+            onclick="startEdit('${esc(item.key)}')">${PENCIL_SVG}</button>
+          <button class="action-btn" title="기한 설정"
+            onmousedown="event.preventDefault()"
+            onclick="openDueDatePopup(event, '${esc(item.key)}', '${esc(item.due_date || '')}')">${CAL_SVG}</button>
+          <button class="action-btn del" title="삭제"
+            onmousedown="event.preventDefault()"
+            onclick="deleteItem('${esc(item.key)}', '${type}')">${X_SVG}</button>
+        </div>
+      </div>`;
+  }
+
+  function sortDoneToBottom(arr) {
+    const isD = i => i.status_done || statusClass(i.status, i.status_done) === 's-done';
+    arr.splice(0, arr.length, ...arr.filter(i => !isD(i)), ...arr.filter(i => isD(i)));
+  }
+
+  function render() {
+    sortDoneToBottom(epics);
+    sortDoneToBottom(tasks);
+    sortDoneToBottom(subtasks);
+
+    document.getElementById('epic-count').textContent    = epics.length;
+    document.getElementById('task-count').textContent    = tasks.length;
+    document.getElementById('subtask-count').textContent = subtasks.length;
+
+    const epicList    = document.getElementById('epic-list');
+    const taskList    = document.getElementById('task-list');
+    const subtaskList = document.getElementById('subtask-list');
+
+    function renderColItems(listEl, items, type, emptyLabel) {
+      if (!items.length) { listEl.innerHTML = `<div class="empty-msg">${emptyLabel} 없음</div>`; return; }
+      const expanded = expandedCols[type];
+      const show = expanded ? items : items.slice(0, VISIBLE_LIMIT);
+      const remaining = items.length - VISIBLE_LIMIT;
+      let html = show.map(i => itemCardHtml(i, type)).join('');
+      if (items.length > VISIBLE_LIMIT) {
+        html += `<div class="show-more-wrap"><button class="show-more-btn" onclick="toggleExpandCol('${type}')">
+          ${expanded ? '접기' : `더보기 (${remaining}개)`}
+        </button></div>`;
+      }
+      listEl.innerHTML = html;
+    }
+
+    renderColItems(epicList,    epics,    'epic',    '에픽');
+    renderColItems(taskList,    tasks,    'task',    '태스크');
+    renderColItems(subtaskList, subtasks, 'subtask', '서브태스크');
+
+    // Restore focus if editing
+    if (editState) {
+      const input = document.getElementById(`edit-input-${editState.key}`);
+      if (input) {
+        input.focus();
+        // Move cursor to end
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    }
+  }
+
+  // ── Edit ───────────────────────────────────────────
+  function startEdit(key) {
+    if (editState?.key === key) return;
+    editState = { key, handled: false };
+    render();
+  }
+
+  function handleEditKey(event, key) {
+    if (event.key === 'Enter') { event.preventDefault(); commitEdit(); }
+    if (event.key === 'Escape') { event.preventDefault(); cancelEdit(); }
+  }
+
+  function cancelEdit() {
+    if (!editState || editState.handled) return;
+    editState.handled = true;
+    editState = null;
+    render();
+  }
+
+  function commitEdit() {
+    if (!editState || editState.handled) return;
+    editState.handled = true;
+    const key = editState.key;
+    editState = null;
+
+    const input = document.getElementById(`edit-input-${key}`);
+    const newSummary = input ? input.value.trim() : '';
+
+    const item = findItem(key);
+    if (!item || !newSummary || newSummary === item.summary) { render(); return; }
+
+    const prev = item.summary;
+    item.summary = newSummary;
+    render();
+
+    authFetch(`/jira/issues/${encodeURIComponent(key)}/summary`, {
+      method: 'PATCH',
+      body: JSON.stringify({ summary: newSummary }),
+    }).then(res => {
+      if (!res.ok) throw new Error();
+      showToast(`수정: ${key}`);
+    }).catch(() => {
+      showToast('수정 실패', 'error');
+      item.summary = prev;
+      render();
+    });
+  }
+
+  // ── Add ────────────────────────────────────────────
+  function showAddForm(type) {
+    ['epic','task','subtask'].forEach(t => {
+      document.getElementById(`${t}-add-form`).style.display = t === type ? 'flex' : 'none';
+    });
+    const input = document.getElementById(`add-input-${type}`);
+    input.value = '';
+    input.disabled = false;
+    input.focus();
+  }
+
+  function cancelAdd() {
+    ['epic','task','subtask'].forEach(t => {
+      document.getElementById(`${t}-add-form`).style.display = 'none';
+    });
+  }
+
+  async function confirmAdd(type) {
+    const input = document.getElementById(`add-input-${type}`);
+    const title = input.value.trim();
+    if (!title) { input.focus(); return; }
+
+    input.disabled = true;
+    const endpoint = type === 'epic' ? '/jira/epics' : type === 'task' ? '/jira/tasks' : '/jira/subtasks';
+
+    try {
+      const res = await authFetch(endpoint, { method: 'POST', body: JSON.stringify({ title }) });
+      if (!res.ok) throw new Error(await res.text());
+      const newItem = await res.json();
+      (type === 'epic' ? epics : type === 'task' ? tasks : subtasks).unshift(newItem);
+      cancelAdd();
+      render();
+      showToast(`생성: ${newItem.key}`);
+    } catch (e) {
+      showToast('생성 실패', 'error');
+      input.disabled = false;
+      input.focus();
+    }
+  }
+
+  // ── Mark Done ──────────────────────────────────────
+  async function markDone(key) {
+    const item = findItem(key);
+    if (!item) return;
+    const prev = item.status;
+    const prevDone = item.status_done;
+    item.status = 'Done';
+    item.status_done = true;
+    render();
+
+    try {
+      const res = await authFetch(`/jira/issues/${encodeURIComponent(key)}/done`, { method: 'POST' });
+      if (!res.ok) throw new Error();
+      showToast(`완료: ${key}`);
+    } catch {
+      showToast('완료 처리 실패', 'error');
+      item.status = prev;
+      item.status_done = prevDone;
+      render();
+    }
+  }
+
+  // ── Delete ─────────────────────────────────────────
+  async function deleteItem(key, type) {
+    const arr  = type === 'epic' ? epics : type === 'task' ? tasks : subtasks;
+    const idx  = arr.findIndex(i => i.key === key);
+    if (idx === -1) return;
+    const [removed] = arr.splice(idx, 1);
+    render();
+
+    try {
+      const res = await authFetch(`/jira/issues/${encodeURIComponent(key)}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      showToast(`삭제: ${key}`);
+    } catch {
+      showToast('삭제 실패', 'error');
+      arr.splice(idx, 0, removed);
+      render();
+    }
+  }
+
+  // ── Due Date popup ─────────────────────────────────
+  function openDueDatePopup(event, key, currentDue) {
+    event.stopPropagation();
+    dueDateKey = key;
+    const popup = document.getElementById('due-popup');
+
+    const opts = [
+      { label: '+1일',  days: 1  },
+      { label: '+3일',  days: 3  },
+      { label: '+7일',  days: 7  },
+      { label: '+30일', days: 30 },
+    ];
+
+    const currentHtml = currentDue
+      ? `<div class="popup-current">현재: ${esc(currentDue)}</div>`
+      : '';
+
+    popup.innerHTML = currentHtml
+      + opts.map(o => `<div class="popup-item" onclick="applyDueDate(${o.days})">${o.label}</div>`).join('')
+      + `<div class="popup-item popup-item-clear" onclick="applyDueDate(null)">초기화</div>`;
+
+    popup.classList.add('show');
+    positionPopup(popup, event.currentTarget);
+  }
+
+  async function applyDueDate(days) {
+    document.getElementById('due-popup').classList.remove('show');
+    const key     = dueDateKey;
+    const item    = findItem(key);
+    if (!item) return;
+
+    const dueDate = days ? calcDueDate(days) : null;
+    const prev    = item.due_date;
+    item.due_date = dueDate;
+    render();
+
+    try {
+      const res = await authFetch(`/jira/issues/${encodeURIComponent(key)}/due-date`, {
+        method: 'PATCH',
+        body: JSON.stringify({ due_date: dueDate }),
+      });
+      if (!res.ok) throw new Error();
+      showToast(dueDate ? `기한: ${dueDate}` : '기한 초기화');
+    } catch {
+      showToast('기한 설정 실패', 'error');
+      item.due_date = prev;
+      render();
+    }
+  }
+
+  function calcDueDate(days) {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d.toISOString().split('T')[0];
+  }
+
+  // ── Popup positioning ──────────────────────────────
+  function positionPopup(popup, anchor) {
+    const rect = anchor.getBoundingClientRect();
+    popup.style.top  = (rect.bottom + 6) + 'px';
+    popup.style.left = rect.left + 'px';
+    const pw = 150;
+    if (rect.left + pw > window.innerWidth) {
+      popup.style.left = (window.innerWidth - pw - 8) + 'px';
+    }
+  }
+
+  // ── Transition popup ───────────────────────────────
+  let transitionsCache = {};
+  let transitionIssueKey = null;
+
+  async function openTransitionPopup(event, key) {
+    event.stopPropagation();
+    transitionIssueKey = key;
+    const popup = document.getElementById('transition-popup');
+    popup.classList.add('show');
+    positionPopup(popup, event.currentTarget);
+
+    if (transitionsCache[key]) { renderTransitionPopup(transitionsCache[key]); return; }
+
+    popup.innerHTML = '<div class="transition-loading">로딩 중...</div>';
+    try {
+      const res = await authFetch(`/jira/issues/${encodeURIComponent(key)}/transitions`);
+      const data = await res.json();
+      transitionsCache[key] = data;
+      renderTransitionPopup(data);
+    } catch {
+      popup.innerHTML = '<div class="transition-loading">로드 실패</div>';
+    }
+  }
+
+  function renderTransitionPopup(transitions) {
+    const popup = document.getElementById('transition-popup');
+    if (!transitions.length) { popup.innerHTML = '<div class="transition-loading">가능한 전환 없음</div>'; return; }
+    popup.innerHTML = transitions.map(t =>
+      `<div class="transition-item" onclick="applyTransition('${esc(t.id)}','${esc(t.name)}')">${esc(t.name)}</div>`
+    ).join('');
+  }
+
+  async function applyTransition(transitionId, transitionName) {
+    document.getElementById('transition-popup').classList.remove('show');
+    const key  = transitionIssueKey;
+    const item = findItem(key);
+    if (!item) return;
+
+    const prevStatus = item.status;
+    const prevDone   = item.status_done;
+    item.status      = transitionName;
+    item.status_done = statusClass(transitionName, false) === 's-done';
+    delete transitionsCache[key];
+    render();
+
+    try {
+      const res = await authFetch(`/jira/issues/${encodeURIComponent(key)}/transitions`, {
+        method: 'POST',
+        body: JSON.stringify({ transition_id: transitionId }),
+      });
+      if (!res.ok) throw new Error();
+      showToast(`${key} → ${transitionName}`);
+    } catch {
+      showToast('상태 변경 실패', 'error');
+      item.status      = prevStatus;
+      item.status_done = prevDone;
+      render();
+    }
+  }
+
+  document.addEventListener('click', e => {
+    if (!document.getElementById('due-popup').contains(e.target))
+      document.getElementById('due-popup').classList.remove('show');
+    if (!document.getElementById('transition-popup').contains(e.target))
+      document.getElementById('transition-popup').classList.remove('show');
+  });
+
+  // ── Utils ──────────────────────────────────────────
+  function findItem(key) {
+    return epics.find(i => i.key === key)
+        || tasks.find(i => i.key === key)
+        || subtasks.find(i => i.key === key);
+  }
+
+  let toastTimer = null;
+  function showToast(msg, type) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = type === 'error' ? 'show error' : 'show';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.className = ''; }, 2800);
+  }
+
+  function toggleExpandCol(type) { expandedCols[type] = !expandedCols[type]; render(); }
+
+  // ── Drag-to-reorder ────────────────────────────────
+  let dragState = null;
+
+  function startDrag(event, type, key) {
+    if (event.target.closest('button, input, a, .status-badge')) return;
+    event.preventDefault();
+    const items = type === 'epic' ? epics : type === 'task' ? tasks : subtasks;
+    const fromIdx = items.findIndex(i => i.key === key);
+    if (fromIdx === -1) return;
+
+    const listEl = document.getElementById(
+      type === 'epic' ? 'epic-list' : type === 'task' ? 'task-list' : 'subtask-list'
+    );
+    const cardEl = listEl.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    if (!cardEl) return;
+
+    cardEl.setPointerCapture(event.pointerId);
+    cardEl.classList.add('dragging');
+    dragState = { type, fromIdx, toIdx: fromIdx, listEl, items, cardEl };
+
+    cardEl.addEventListener('pointermove', onDragMove);
+    cardEl.addEventListener('pointerup', onDragEnd);
+    cardEl.addEventListener('pointercancel', onDragEnd);
+  }
+
+  function onDragMove(event) {
+    if (!dragState) return;
+    const { listEl, items } = dragState;
+
+    const otherCards = Array.from(listEl.querySelectorAll('.item-card:not(.dragging)'));
+    let toIdx = items.length;
+    for (const card of otherCards) {
+      const rect = card.getBoundingClientRect();
+      if (event.clientY < rect.top + rect.height / 2) {
+        toIdx = items.findIndex(i => i.key === card.dataset.key);
+        break;
+      }
+    }
+    dragState.toIdx = toIdx;
+
+    listEl.querySelectorAll('.drop-line').forEach(el => el.remove());
+    const line = document.createElement('div');
+    line.className = 'drop-line';
+    const targetCard = toIdx < items.length
+      ? otherCards.find(c => items.findIndex(i => i.key === c.dataset.key) === toIdx)
+      : null;
+    if (targetCard) listEl.insertBefore(line, targetCard);
+    else listEl.appendChild(line);
+  }
+
+  function onDragEnd(event) {
+    if (!dragState) return;
+    const { type, fromIdx, toIdx, listEl, items, cardEl } = dragState;
+    dragState = null;
+
+    cardEl.classList.remove('dragging');
+    cardEl.removeEventListener('pointermove', onDragMove);
+    cardEl.removeEventListener('pointerup', onDragEnd);
+    cardEl.removeEventListener('pointercancel', onDragEnd);
+    listEl.querySelectorAll('.drop-line').forEach(el => el.remove());
+
+    const actualInsert = toIdx > fromIdx ? toIdx - 1 : toIdx;
+    if (actualInsert === fromIdx) return;
+
+    const [item] = items.splice(fromIdx, 1);
+    items.splice(actualInsert, 0, item);
+    render();
+    saveOrder(items.map(i => i.key));
+  }
+
+  async function saveOrder(keys) {
+    try {
+      await authFetch('/jira/order', {
+        method: 'POST',
+        body: JSON.stringify({ keys }),
+      });
+    } catch (_) { /* silent — UI already updated */ }
+  }
+
+  // ── Boot ───────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', initPage);
+</script>
+</body>
+</html>

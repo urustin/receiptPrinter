@@ -75,6 +75,12 @@ def init_db():
             cur.execute("""
                 UPDATE print_jobs SET sort_order = id WHERE sort_order = 0
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS jira_order (
+                    issue_key TEXT PRIMARY KEY,
+                    sort_order INTEGER NOT NULL DEFAULT 0
+                )
+            """)
         conn.commit()
 
 
@@ -255,6 +261,109 @@ def apply_issue_transition(issue_key: str, body: TransitionRequest, user=Depends
 
 class AssignParentRequest(BaseModel):
     task_key: str
+
+
+@app.get("/jira/all-items")
+def get_all_items(user=Depends(require_auth)):
+    data = jira_client.get_all_items()
+    all_keys = [i["key"] for i in data["epics"] + data["tasks"] + data["subtasks"]]
+    if all_keys:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT issue_key, sort_order FROM jira_order WHERE issue_key = ANY(%s)",
+                    (all_keys,)
+                )
+                order_map = {row[0]: row[1] for row in cur.fetchall()}
+        for col in ("epics", "tasks", "subtasks"):
+            data[col] = sorted(data[col], key=lambda i: order_map.get(i["key"], 999999))
+    return data
+
+
+class SaveOrderRequest(BaseModel):
+    keys: list[str]
+
+
+@app.post("/jira/order")
+def save_jira_order(body: SaveOrderRequest, user=Depends(require_auth)):
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            for order, key in enumerate(body.keys):
+                cur.execute(
+                    "INSERT INTO jira_order (issue_key, sort_order) VALUES (%s, %s)"
+                    " ON CONFLICT (issue_key) DO UPDATE SET sort_order = EXCLUDED.sort_order",
+                    (key, order)
+                )
+        conn.commit()
+    return {"ok": True}
+
+
+class CreateItemRequest(BaseModel):
+    title: str
+
+
+@app.post("/jira/epics")
+def create_epic(body: CreateItemRequest, user=Depends(require_auth)):
+    item = jira_client.create_epic(body.title)
+    if not item:
+        raise HTTPException(status_code=500, detail="Failed to create epic")
+    return item
+
+
+@app.post("/jira/tasks")
+def create_task(body: CreateItemRequest, user=Depends(require_auth)):
+    item = jira_client.create_task_item(body.title)
+    if not item:
+        raise HTTPException(status_code=500, detail="Failed to create task")
+    return item
+
+
+@app.post("/jira/subtasks")
+def create_subtask(body: CreateItemRequest, user=Depends(require_auth)):
+    item = jira_client.create_subtask_item(body.title)
+    if not item:
+        raise HTTPException(status_code=500, detail="Failed to create subtask")
+    return item
+
+
+class UpdateSummaryRequest(BaseModel):
+    summary: str
+
+
+@app.patch("/jira/issues/{issue_key}/summary")
+def update_issue_summary(issue_key: str, body: UpdateSummaryRequest, user=Depends(require_auth)):
+    ok = jira_client.update_summary(issue_key, body.summary)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to update summary")
+    return {"ok": True}
+
+
+class SetDueDateRequest(BaseModel):
+    due_date: str | None = None
+
+
+@app.patch("/jira/issues/{issue_key}/due-date")
+def set_issue_due_date(issue_key: str, body: SetDueDateRequest, user=Depends(require_auth)):
+    ok = jira_client.set_due_date(issue_key, body.due_date)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to set due date")
+    return {"ok": True}
+
+
+@app.post("/jira/issues/{issue_key}/done")
+def done_jira_issue(issue_key: str, user=Depends(require_auth)):
+    ok = jira_client.mark_done_issue(issue_key)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to mark done")
+    return {"ok": True}
+
+
+@app.delete("/jira/issues/{issue_key}")
+def delete_jira_issue(issue_key: str, user=Depends(require_auth)):
+    ok = jira_client.delete_issue(issue_key)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to delete issue")
+    return {"ok": True}
 
 
 @app.patch("/jira/subtasks/{subtask_key}/parent")

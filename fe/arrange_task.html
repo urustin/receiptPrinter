@@ -143,9 +143,11 @@
       border-radius: 0 6px 6px 0;
     }
 
-    .epic-tasks.drag-over {
-      background: rgba(0,113,227,0.04);
-      border-color: #0071e3;
+    .task-card.card-dragging { opacity: 0.4; }
+    .card-drop-line {
+      height: 2px; background: #0071e3;
+      border-radius: 2px; margin: 2px 0;
+      pointer-events: none;
     }
 
     /* ── Unassigned column ──────────────────────────── */
@@ -187,8 +189,9 @@
 
     .drag-handle {
       color: #c7c7cc; font-size: 13px; flex-shrink: 0;
-      line-height: 1;
+      line-height: 1; cursor: grab; user-select: none; touch-action: none;
     }
+    .drag-handle:active { cursor: grabbing; }
 
     .task-info { flex: 1; min-width: 0; }
 
@@ -217,6 +220,14 @@
       text-align: center; padding: 64px 24px;
       color: #aeaeb2; font-size: 14px;
     }
+
+    .show-more-wrap { text-align: center; margin-top: 4px; }
+    .show-more-btn {
+      padding: 5px 16px; border: 1px solid #d2d2d7; border-radius: 20px;
+      background: #fff; font-size: 12px; color: #6e6e73;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .show-more-btn:hover { background: #f5f5f7; }
 
     .empty-msg {
       text-align: center; padding: 16px 8px;
@@ -308,7 +319,7 @@
 <div id="app" style="display:none">
   <header>
     <div class="header-left">
-      <a href="/">← 메인</a>
+      <a href="/hub">← 메인</a>
       <h1>에픽-태스크 배열</h1>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
@@ -337,10 +348,7 @@
             미지정 태스크
             <span class="col-count" id="unassigned-count">0</span>
           </div>
-          <div class="drop-zone" id="unassigned-zone"
-               ondragover="onDragOver(event, this)"
-               ondragleave="onDragLeave(this)"
-               ondrop="onDrop(event, null)">
+          <div class="drop-zone" id="unassigned-zone">
             <div id="unassigned-list"></div>
           </div>
         </div>
@@ -357,7 +365,8 @@
   // ── State ──────────────────────────────────────────
   let epics = [];
   let tasks = [];
-  let draggingKey = null;
+  const TASK_LIMIT = 4;
+  let expandedEpics = {};
 
   // ── Auth init (keeps current URL path) ────────────
   function initPage() {
@@ -426,11 +435,7 @@
   function taskCardHtml(task) {
     const sc = statusClass(task.status);
     return `
-      <div class="task-card"
-           draggable="true"
-           data-key="${esc(task.key)}"
-           ondragstart="onDragStart(event, this)"
-           ondragend="onDragEnd(this)">
+      <div class="task-card" data-key="${esc(task.key)}" onpointerdown="startCardDrag(event,'${esc(task.key)}','${esc(task.epic_key || '')}')">
         <span class="drag-handle">⠿</span>
         <div class="task-info">
           <div class="task-key">${esc(task.key)}</div>
@@ -465,23 +470,24 @@
     } else {
       epicsList.innerHTML = epics.map(ep => {
         const epicTasks = epicMap[ep.key] || [];
-        const tasksHtml = epicTasks.length > 0
-          ? epicTasks.map(taskCardHtml).join('')
+        const expanded = expandedEpics[ep.key];
+        const visible = expanded ? epicTasks : epicTasks.slice(0, TASK_LIMIT);
+        const tasksHtml = visible.length > 0
+          ? visible.map(taskCardHtml).join('')
           : '<div class="empty-msg">태스크 없음</div>';
+        const moreBtn = epicTasks.length > TASK_LIMIT
+          ? `<div class="show-more-wrap"><button class="show-more-btn" onclick="toggleEpicExpand('${esc(ep.key)}')">
+              ${expanded ? '접기' : `더보기 (${epicTasks.length - TASK_LIMIT}개)`}
+             </button></div>`
+          : '';
         return `
-          <div class="epic-card"
-               ondragover="onDragOver(event, this)"
-               ondragleave="onDragLeave(this)"
-               ondrop="onDrop(event, '${esc(ep.key)}')">
+          <div class="epic-card" data-key="${esc(ep.key)}">
             <div class="epic-meta">
               <div class="epic-title">${esc(ep.summary)}</div>
               <span class="epic-key-badge">${esc(ep.key)}</span>
             </div>
-            <div class="epic-tasks"
-                 ondragover="onDragOver(event, this)"
-                 ondragleave="onDragLeave(this)"
-                 ondrop="onDropStop(event, '${esc(ep.key)}')">
-              ${tasksHtml}
+            <div class="epic-tasks">
+              ${tasksHtml}${moreBtn}
             </div>
           </div>`;
       }).join('');
@@ -494,65 +500,99 @@
       : '<div class="empty-msg">미지정 태스크 없음</div>';
   }
 
-  // ── Drag & Drop ────────────────────────────────────
-  function onDragStart(event, el) {
-    draggingKey = el.dataset.key;
-    event.dataTransfer.setData('text/plain', draggingKey);
-    event.dataTransfer.effectAllowed = 'move';
-    setTimeout(() => el.classList.add('dragging'), 0);
-  }
+  function toggleEpicExpand(epicKey) { expandedEpics[epicKey] = !expandedEpics[epicKey]; render(); }
 
-  function onDragEnd(el) {
-    el.classList.remove('dragging');
-    document.querySelectorAll('.drag-over').forEach(e => e.classList.remove('drag-over'));
-    draggingKey = null;
-  }
+  // ── Card drag (pointer events) ─────────────────────
+  let cardDragState = null;
 
-  function onDragOver(event, el) {
+  function startCardDrag(event, key, epicKey) {
+    if (event.target.closest('button, input, a, .status-badge')) return;
     event.preventDefault();
-    event.stopPropagation();
-    el.classList.add('drag-over');
+    epicKey = epicKey || null;
+    const epicTasks = tasks.filter(t => epicKey ? t.epic_key === epicKey : !t.epic_key);
+    const fromIdx = epicTasks.findIndex(t => t.key === key);
+    if (fromIdx === -1) return;
+    const cardEl = document.querySelector(`.task-card[data-key="${CSS.escape(key)}"]`);
+    if (!cardEl) return;
+    cardEl.setPointerCapture(event.pointerId);
+    cardEl.classList.add('card-dragging');
+    cardDragState = { key, epicKey, fromIdx, toEpicKey: epicKey, toIdx: fromIdx, cardEl };
+    cardEl.addEventListener('pointermove', onCardMove);
+    cardEl.addEventListener('pointerup', onCardEnd);
+    cardEl.addEventListener('pointercancel', onCardEnd);
   }
 
-  function onDragLeave(el) {
-    el.classList.remove('drag-over');
+  function onCardMove(event) {
+    if (!cardDragState) return;
+    cardDragState.cardEl.style.pointerEvents = 'none';
+    const el = document.elementFromPoint(event.clientX, event.clientY);
+    cardDragState.cardEl.style.pointerEvents = '';
+    document.querySelectorAll('.epic-card.drag-over, .drop-zone.drag-over').forEach(e => e.classList.remove('drag-over'));
+    document.querySelectorAll('.card-drop-line').forEach(e => e.remove());
+    if (!el) { cardDragState.toEpicKey = cardDragState.epicKey; cardDragState.toIdx = cardDragState.fromIdx; return; }
+    const epicCard = el.closest('.epic-card[data-key]');
+    let toEpicKey, dropArea, containerEl;
+    if (epicCard) {
+      toEpicKey = epicCard.dataset.key;
+      dropArea = epicCard.querySelector('.epic-tasks');
+      containerEl = epicCard;
+    } else {
+      const zone = document.getElementById('unassigned-zone');
+      if (zone && (zone === el || zone.contains(el))) {
+        toEpicKey = null;
+        dropArea = document.getElementById('unassigned-list');
+        containerEl = zone;
+      } else {
+        cardDragState.toEpicKey = cardDragState.epicKey; cardDragState.toIdx = cardDragState.fromIdx; return;
+      }
+    }
+    containerEl.classList.add('drag-over');
+    const otherCards = Array.from(dropArea.querySelectorAll('.task-card:not(.card-dragging)'));
+    let toIdx = otherCards.length;
+    for (let i = 0; i < otherCards.length; i++) {
+      const r = otherCards[i].getBoundingClientRect();
+      if (event.clientY < r.top + r.height / 2) { toIdx = i; break; }
+    }
+    const line = document.createElement('div');
+    line.className = 'card-drop-line';
+    if (toIdx < otherCards.length) dropArea.insertBefore(line, otherCards[toIdx]); else dropArea.appendChild(line);
+    cardDragState.toEpicKey = toEpicKey;
+    cardDragState.toIdx = toIdx;
   }
 
-  // Drop on epic-tasks div (innermost target)
-  function onDropStop(event, epicKey) {
-    event.stopPropagation();
-    onDrop(event, epicKey);
-  }
-
-  async function onDrop(event, epicKey) {
-    event.preventDefault();
-    document.querySelectorAll('.drag-over').forEach(e => e.classList.remove('drag-over'));
-
-    const taskKey = event.dataTransfer.getData('text/plain') || draggingKey;
-    if (!taskKey) return;
-
-    const task = tasks.find(t => t.key === taskKey);
+  function onCardEnd() {
+    if (!cardDragState) return;
+    const { key, epicKey, fromIdx, toEpicKey, toIdx, cardEl } = cardDragState;
+    cardDragState = null;
+    cardEl.classList.remove('card-dragging');
+    cardEl.removeEventListener('pointermove', onCardMove);
+    cardEl.removeEventListener('pointerup', onCardEnd);
+    cardEl.removeEventListener('pointercancel', onCardEnd);
+    document.querySelectorAll('.epic-card.drag-over, .drop-zone.drag-over').forEach(e => e.classList.remove('drag-over'));
+    document.querySelectorAll('.card-drop-line').forEach(e => e.remove());
+    const task = tasks.find(t => t.key === key);
     if (!task) return;
-    if (task.epic_key === epicKey) return; // no-op
-
-    const prevEpic = task.epic_key;
-
-    // Optimistic update
-    task.epic_key = epicKey;
-    render();
-
-    try {
-      const res = await authFetch(`/jira/tasks/${encodeURIComponent(taskKey)}/epic`, {
-        method: 'PATCH',
-        body: JSON.stringify({ epic_key: epicKey }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const label = epicKey ? `${taskKey} → ${epicKey}` : `${taskKey} 에픽 해제`;
-      showToast(label);
-    } catch (e) {
-      showToast('업데이트 실패', 'error');
-      task.epic_key = prevEpic; // revert
+    if (toEpicKey === epicKey) {
+      // Same container: reorder
+      if (toIdx === fromIdx) return;
+      const ct = tasks.filter(t => epicKey ? t.epic_key === epicKey : !t.epic_key);
+      const [moved] = ct.splice(fromIdx, 1);
+      ct.splice(toIdx, 0, moved);
+      const gi = []; tasks.forEach((t, i) => { if (epicKey ? t.epic_key === epicKey : !t.epic_key) gi.push(i); });
+      gi.forEach((idx, i) => { tasks[idx] = ct[i]; });
       render();
+      authFetch('/jira/order', { method: 'POST', body: JSON.stringify({ keys: ct.map(t => t.key) }) }).catch(() => {});
+    } else {
+      // Different container: reassign
+      const prevEpic = task.epic_key;
+      task.epic_key = toEpicKey;
+      render();
+      authFetch(`/jira/tasks/${encodeURIComponent(key)}/epic`, {
+        method: 'PATCH', body: JSON.stringify({ epic_key: toEpicKey }),
+      }).then(res => {
+        if (!res.ok) throw new Error();
+        showToast(toEpicKey ? `${key} → ${toEpicKey}` : `${key} 에픽 해제`);
+      }).catch(() => { showToast('업데이트 실패', 'error'); task.epic_key = prevEpic; render(); });
     }
   }
 
@@ -598,8 +638,7 @@
 
   function positionPopup(popup, anchor) {
     const rect = anchor.getBoundingClientRect();
-    const scrollY = window.scrollY;
-    popup.style.top = (rect.bottom + scrollY + 6) + 'px';
+    popup.style.top = (rect.bottom + 6) + 'px';
     popup.style.left = rect.left + 'px';
     // Adjust if goes off right edge
     const pw = 180;

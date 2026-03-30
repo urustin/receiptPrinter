@@ -143,9 +143,11 @@
       border-radius: 0 6px 6px 0;
     }
 
-    .epic-tasks.drag-over {
-      background: rgba(0,113,227,0.04);
-      border-color: #0071e3;
+    .task-card.card-dragging { opacity: 0.4; }
+    .card-drop-line {
+      height: 2px; background: #0071e3;
+      border-radius: 2px; margin: 2px 0;
+      pointer-events: none;
     }
 
     /* ── TEMP column (right) ────────────────────────── */
@@ -187,8 +189,9 @@
 
     .drag-handle {
       color: #c7c7cc; font-size: 13px; flex-shrink: 0;
-      line-height: 1;
+      line-height: 1; cursor: grab; user-select: none; touch-action: none;
     }
+    .drag-handle:active { cursor: grabbing; }
 
     .task-info { flex: 1; min-width: 0; }
 
@@ -269,6 +272,20 @@
     .status-badge { cursor: pointer; user-select: none; }
     .status-badge:hover { opacity: 0.8; }
 
+    /* ── Show-more button ──────────────────────────── */
+    .show-more-wrap {
+      text-align: center;
+      margin-top: 4px;
+    }
+    .show-more-btn {
+      padding: 6px 18px;
+      border: 1px solid #d2d2d7; border-radius: 20px;
+      background: #fff; font-size: 12px; color: #6e6e73;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .show-more-btn:hover { background: #f5f5f7; }
+    .epic-card.done-task { opacity: 0.55; }
+
     /* ── Toast ──────────────────────────────────────── */
     #toast {
       position: fixed; bottom: 28px; left: 50%;
@@ -308,7 +325,7 @@
 <div id="app" style="display:none">
   <header>
     <div class="header-left">
-      <a href="/">← 메인</a>
+      <a href="/hub">← 메인</a>
       <h1>태스크-서브태스크 배열</h1>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
@@ -337,10 +354,7 @@
             TEMP (미배정)
             <span class="col-count" id="temp-count">0</span>
           </div>
-          <div class="drop-zone" id="temp-zone"
-               ondragover="onDragOver(event, this)"
-               ondragleave="onDragLeave(this)"
-               ondrop="onDrop(event, tempKey)">
+          <div class="drop-zone" id="temp-zone">
             <div id="temp-list"></div>
           </div>
         </div>
@@ -358,7 +372,9 @@
   let parentTasks = [];
   let subtasks = [];
   let tempKey = null;
-  let draggingKey = null;
+  let showDoneTasks = false;
+  const SUBTASK_LIMIT = 4;
+  let expandedTasks = {};
 
   // ── Auth init (keeps current URL path) ────────────
   function initPage() {
@@ -428,11 +444,7 @@
   function subtaskCardHtml(st) {
     const sc = statusClass(st.status);
     return `
-      <div class="task-card"
-           draggable="true"
-           data-key="${esc(st.key)}"
-           ondragstart="onDragStart(event, this)"
-           ondragend="onDragEnd(this)">
+      <div class="task-card" data-key="${esc(st.key)}" onpointerdown="startCardDrag(event,'${esc(st.key)}','${esc(st.parent_key || '')}')">
         <span class="drag-handle">⠿</span>
         <div class="task-info">
           <div class="task-key">${esc(st.key)}</div>
@@ -442,11 +454,19 @@
       </div>`;
   }
 
+  function isDoneStatus(s) {
+    const l = s.toLowerCase();
+    return l.includes('done') || l.includes('완료') || l.includes('closed') || l.includes('resolved');
+  }
+
   function render() {
     // Tasks excluding TEMP
     const visibleTasks = tempKey
       ? parentTasks.filter(t => t.key !== tempKey)
       : parentTasks;
+
+    const activeTasks = visibleTasks.filter(t => !isDoneStatus(t.status));
+    const doneTasks   = visibleTasks.filter(t =>  isDoneStatus(t.status));
 
     // Build map: taskKey → subtasks[]
     const taskMap = {};
@@ -461,36 +481,48 @@
       }
     }
 
-    document.getElementById('task-count').textContent = visibleTasks.length;
+    document.getElementById('task-count').textContent = activeTasks.length;
     document.getElementById('temp-count').textContent = tempSubtasks.length;
+
+    function taskCardHtml(t, isDone) {
+      const children = taskMap[t.key] || [];
+      const expanded = expandedTasks[t.key];
+      const visible = expanded ? children : children.slice(0, SUBTASK_LIMIT);
+      const childrenHtml = visible.length > 0
+        ? visible.map(subtaskCardHtml).join('')
+        : '<div class="empty-msg">서브태스크 없음</div>';
+      const moreBtn = children.length > SUBTASK_LIMIT
+        ? `<div class="show-more-wrap"><button class="show-more-btn" onclick="toggleTaskExpand('${esc(t.key)}')">
+            ${expanded ? '접기' : `더보기 (${children.length - SUBTASK_LIMIT}개)`}
+           </button></div>`
+        : '';
+      return `
+        <div class="epic-card${isDone ? ' done-task' : ''}" data-key="${esc(t.key)}">
+          <div class="epic-meta">
+            <div class="epic-title">${esc(t.summary)}</div>
+            <span class="epic-key-badge">${esc(t.key)}</span>
+          </div>
+          <div class="epic-tasks">
+            ${childrenHtml}${moreBtn}
+          </div>
+        </div>`;
+    }
 
     // Left column: tasks with subtasks
     const tasksList = document.getElementById('tasks-list');
     if (visibleTasks.length === 0) {
       tasksList.innerHTML = '<div class="empty-msg">태스크 없음</div>';
     } else {
-      tasksList.innerHTML = visibleTasks.map(t => {
-        const children = taskMap[t.key] || [];
-        const childrenHtml = children.length > 0
-          ? children.map(subtaskCardHtml).join('')
-          : '<div class="empty-msg">서브태스크 없음</div>';
-        return `
-          <div class="epic-card"
-               ondragover="onDragOver(event, this)"
-               ondragleave="onDragLeave(this)"
-               ondrop="onDrop(event, '${esc(t.key)}')">
-            <div class="epic-meta">
-              <div class="epic-title">${esc(t.summary)}</div>
-              <span class="epic-key-badge">${esc(t.key)}</span>
-            </div>
-            <div class="epic-tasks"
-                 ondragover="onDragOver(event, this)"
-                 ondragleave="onDragLeave(this)"
-                 ondrop="onDropStop(event, '${esc(t.key)}')">
-              ${childrenHtml}
-            </div>
-          </div>`;
-      }).join('');
+      const activeHtml = activeTasks.map(t => taskCardHtml(t, false)).join('');
+      const doneHtml   = showDoneTasks ? doneTasks.map(t => taskCardHtml(t, true)).join('') : '';
+      const doneBtnHtml = doneTasks.length > 0
+        ? `<div class="show-more-wrap">
+            <button class="show-more-btn" onclick="toggleDoneTasks()">
+              ${showDoneTasks ? '완료 접기' : `완료된 태스크 ${doneTasks.length}개`}
+            </button>
+          </div>`
+        : '';
+      tasksList.innerHTML = activeHtml + doneBtnHtml + doneHtml;
     }
 
     // Right column: TEMP subtasks
@@ -500,63 +532,100 @@
       : '<div class="empty-msg">TEMP 서브태스크 없음</div>';
   }
 
-  // ── Drag & Drop ────────────────────────────────────
-  function onDragStart(event, el) {
-    draggingKey = el.dataset.key;
-    event.dataTransfer.setData('text/plain', draggingKey);
-    event.dataTransfer.effectAllowed = 'move';
-    setTimeout(() => el.classList.add('dragging'), 0);
-  }
+  function toggleDoneTasks() { showDoneTasks = !showDoneTasks; render(); }
+  function toggleTaskExpand(key) { expandedTasks[key] = !expandedTasks[key]; render(); }
 
-  function onDragEnd(el) {
-    el.classList.remove('dragging');
-    document.querySelectorAll('.drag-over').forEach(e => e.classList.remove('drag-over'));
-    draggingKey = null;
-  }
+  // ── Card drag (pointer events) ─────────────────────
+  let cardDragState = null;
 
-  function onDragOver(event, el) {
+  function startCardDrag(event, key, parentKey) {
+    if (event.target.closest('button, input, a, .status-badge')) return;
     event.preventDefault();
-    event.stopPropagation();
-    el.classList.add('drag-over');
+    // parentKey is the current parent task key (tempKey for TEMP zone)
+    const containerSubs = subtasks.filter(s => s.parent_key === parentKey);
+    const fromIdx = containerSubs.findIndex(s => s.key === key);
+    if (fromIdx === -1) return;
+    const cardEl = document.querySelector(`.task-card[data-key="${CSS.escape(key)}"]`);
+    if (!cardEl) return;
+    cardEl.setPointerCapture(event.pointerId);
+    cardEl.classList.add('card-dragging');
+    cardDragState = { key, parentKey, fromIdx, toParentKey: parentKey, toIdx: fromIdx, cardEl };
+    cardEl.addEventListener('pointermove', onCardMove);
+    cardEl.addEventListener('pointerup', onCardEnd);
+    cardEl.addEventListener('pointercancel', onCardEnd);
   }
 
-  function onDragLeave(el) {
-    el.classList.remove('drag-over');
+  function onCardMove(event) {
+    if (!cardDragState) return;
+    cardDragState.cardEl.style.pointerEvents = 'none';
+    const el = document.elementFromPoint(event.clientX, event.clientY);
+    cardDragState.cardEl.style.pointerEvents = '';
+    document.querySelectorAll('.epic-card.drag-over, .drop-zone.drag-over').forEach(e => e.classList.remove('drag-over'));
+    document.querySelectorAll('.card-drop-line').forEach(e => e.remove());
+    if (!el) { cardDragState.toParentKey = cardDragState.parentKey; cardDragState.toIdx = cardDragState.fromIdx; return; }
+    const taskCard = el.closest('.epic-card[data-key]');
+    let toParentKey, dropArea, containerEl;
+    if (taskCard) {
+      toParentKey = taskCard.dataset.key;
+      dropArea = taskCard.querySelector('.epic-tasks');
+      containerEl = taskCard;
+    } else {
+      const zone = document.getElementById('temp-zone');
+      if (zone && (zone === el || zone.contains(el))) {
+        toParentKey = tempKey;
+        dropArea = document.getElementById('temp-list');
+        containerEl = zone;
+      } else {
+        cardDragState.toParentKey = cardDragState.parentKey; cardDragState.toIdx = cardDragState.fromIdx; return;
+      }
+    }
+    containerEl.classList.add('drag-over');
+    const otherCards = Array.from(dropArea.querySelectorAll('.task-card:not(.card-dragging)'));
+    let toIdx = otherCards.length;
+    for (let i = 0; i < otherCards.length; i++) {
+      const r = otherCards[i].getBoundingClientRect();
+      if (event.clientY < r.top + r.height / 2) { toIdx = i; break; }
+    }
+    const line = document.createElement('div');
+    line.className = 'card-drop-line';
+    if (toIdx < otherCards.length) dropArea.insertBefore(line, otherCards[toIdx]); else dropArea.appendChild(line);
+    cardDragState.toParentKey = toParentKey;
+    cardDragState.toIdx = toIdx;
   }
 
-  function onDropStop(event, taskKey) {
-    event.stopPropagation();
-    onDrop(event, taskKey);
-  }
-
-  async function onDrop(event, targetTaskKey) {
-    event.preventDefault();
-    document.querySelectorAll('.drag-over').forEach(e => e.classList.remove('drag-over'));
-
-    const subtaskKey = event.dataTransfer.getData('text/plain') || draggingKey;
-    if (!subtaskKey) return;
-
-    const st = subtasks.find(s => s.key === subtaskKey);
+  function onCardEnd() {
+    if (!cardDragState) return;
+    const { key, parentKey, fromIdx, toParentKey, toIdx, cardEl } = cardDragState;
+    cardDragState = null;
+    cardEl.classList.remove('card-dragging');
+    cardEl.removeEventListener('pointermove', onCardMove);
+    cardEl.removeEventListener('pointerup', onCardEnd);
+    cardEl.removeEventListener('pointercancel', onCardEnd);
+    document.querySelectorAll('.epic-card.drag-over, .drop-zone.drag-over').forEach(e => e.classList.remove('drag-over'));
+    document.querySelectorAll('.card-drop-line').forEach(e => e.remove());
+    const st = subtasks.find(s => s.key === key);
     if (!st) return;
-    if (st.parent_key === targetTaskKey) return; // no-op
-
-    const prevParent = st.parent_key;
-
-    // Optimistic update
-    st.parent_key = targetTaskKey;
-    render();
-
-    try {
-      const res = await authFetch(`/jira/subtasks/${encodeURIComponent(subtaskKey)}/parent`, {
-        method: 'PATCH',
-        body: JSON.stringify({ task_key: targetTaskKey }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      showToast(`${subtaskKey} → ${targetTaskKey}`);
-    } catch (e) {
-      showToast('업데이트 실패', 'error');
-      st.parent_key = prevParent;
+    if (toParentKey === parentKey) {
+      // Same container: reorder
+      if (toIdx === fromIdx) return;
+      const ct = subtasks.filter(s => s.parent_key === parentKey);
+      const [moved] = ct.splice(fromIdx, 1);
+      ct.splice(toIdx, 0, moved);
+      const gi = []; subtasks.forEach((s, i) => { if (s.parent_key === parentKey) gi.push(i); });
+      gi.forEach((idx, i) => { subtasks[idx] = ct[i]; });
       render();
+      authFetch('/jira/order', { method: 'POST', body: JSON.stringify({ keys: ct.map(s => s.key) }) }).catch(() => {});
+    } else {
+      // Different container: reassign
+      const prevParent = st.parent_key;
+      st.parent_key = toParentKey;
+      render();
+      authFetch(`/jira/subtasks/${encodeURIComponent(key)}/parent`, {
+        method: 'PATCH', body: JSON.stringify({ task_key: toParentKey }),
+      }).then(res => {
+        if (!res.ok) throw new Error();
+        showToast(`${key} → ${toParentKey}`);
+      }).catch(() => { showToast('업데이트 실패', 'error'); st.parent_key = prevParent; render(); });
     }
   }
 
@@ -602,8 +671,7 @@
 
   function positionPopup(popup, anchor) {
     const rect = anchor.getBoundingClientRect();
-    const scrollY = window.scrollY;
-    popup.style.top = (rect.bottom + scrollY + 6) + 'px';
+    popup.style.top = (rect.bottom + 6) + 'px';
     popup.style.left = rect.left + 'px';
     const pw = 180;
     if (rect.left + pw > window.innerWidth) {

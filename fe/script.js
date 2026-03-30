@@ -1,11 +1,5 @@
 initAuth();
 
-function tick() {
-  document.getElementById('clock').textContent =
-    new Date().toLocaleString('ko-KR', { hour12: false });
-}
-tick(); setInterval(tick, 1000);
-
 // ── Load board ────────────────────────────────────
 async function loadBoard() {
   try {
@@ -113,13 +107,14 @@ function initDrag(list) {
   let ghost    = null;   // floating clone
   let offsetX  = 0, offsetY = 0;
 
-  list.querySelectorAll('.drag-handle').forEach(handle => {
-    handle.addEventListener('pointerdown', onDown);
+  list.querySelectorAll('.job-item').forEach(item => {
+    item.addEventListener('pointerdown', onDown);
   });
 
   function onDown(e) {
+    if (e.target.closest('button')) return;
     e.preventDefault();
-    const li = e.currentTarget.closest('.job-item');
+    const li = e.currentTarget;
     dragging = li;
 
     const rect = li.getBoundingClientRect();

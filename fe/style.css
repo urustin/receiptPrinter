@@ -89,16 +89,18 @@ body {
   gap: 12px;
 }
 
-.time-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: #f2f2f7;
+.hub-btn {
+  background: transparent;
+  border: 1px solid #d2d2d7;
   border-radius: 8px;
-  padding: 6px 10px;
+  color: #0071e3;
   font-size: .8125rem;
-  color: #6e6e73;
+  padding: 6px 12px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background .15s;
 }
+.hub-btn:hover { background: #f2f2f7; }
 
 .signout-btn {
   background: transparent;
@@ -242,6 +244,14 @@ body {
   border-radius: 10px;
   animation: fadein .2s ease;
 }
+
+#progress-list .job-item {
+  background: hsl(145, 40%, 93%);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+#progress-list .job-item:active { cursor: grabbing; }
 
 .job-title {
   flex: 1;

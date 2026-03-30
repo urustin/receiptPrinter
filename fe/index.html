@@ -28,14 +28,12 @@
 
 <div id="app" style="display:none;">
   <header class="app-header">
-    <span class="app-logo">🖨️ Printer</span>
+    <div style="display:flex;align-items:center;gap:12px">
+      <a href="/hub" style="font-size:.8125rem;color:#0071e3;text-decoration:none;font-weight:500;">← 메인</a>
+      <span class="app-logo">🖨️ Printer</span>
+    </div>
     <div class="header-right">
-      <div class="time-badge">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-        </svg>
-        <span id="clock">--:--:--</span>
-      </div>
+      <span class="hub-btn" style="cursor:default;color:#6e6e73;pointer-events:none;">관리</span>
       <button class="signout-btn" onclick="logout()">Sign out</button>
     </div>
   </header>
