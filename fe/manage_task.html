@@ -301,7 +301,7 @@
 <div id="app" style="display:none">
   <header>
     <div class="header-left">
-      <a href="/hub">← 메인</a>
+      <a href="/">← 메인</a>
       <h1>태스크 관리</h1>
     </div>
     <div class="header-right">
@@ -395,6 +395,7 @@
     document.getElementById('board').style.display = 'none';
     try {
       const res = await authFetch('/jira/all-items');
+      if (res.status === 400) { alert('Jira 설정이 없습니다.\n설정 페이지로 이동합니다.'); location.replace('/settings'); return; }
       if (!res.ok) throw new Error(res.status);
       const data = await res.json();
       epics    = data.epics    || [];

@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Printer</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+<style>
+  /* Settings modal */
+  .modal-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.35);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-backdrop.open { display: flex; }
+
+  .settings-modal {
+    background: #fff;
+    border-radius: 16px;
+    padding: 28px 24px;
+    width: 320px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  }
+  .settings-modal h2 {
+    font-size: 16px; font-weight: 700;
+    margin-bottom: 20px; color: #1d1d1f;
+  }
+
+  .modal-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .modal-row-label {
+    font-size: 14px; font-weight: 500; color: #1d1d1f;
+  }
+  .modal-row-sub {
+    font-size: 11px; color: #aeaeb2; margin-top: 2px;
+  }
+
+  /* Toggle switch */
+  .toggle {
+    position: relative; width: 44px; height: 26px; flex-shrink: 0;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-track {
+    position: absolute; inset: 0;
+    background: #d2d2d7; border-radius: 13px;
+    transition: background 0.2s;
+    cursor: pointer;
+  }
+  .toggle input:checked + .toggle-track { background: #34c759; }
+  .toggle-thumb {
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 20px; height: 20px;
+    background: #fff; border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    transition: transform 0.2s;
+    pointer-events: none;
+  }
+  .toggle input:checked ~ .toggle-thumb { transform: translateX(18px); }
+
+  .modal-divider {
+    border: none; border-top: 1px solid #f0f0f0;
+    margin: 4px 0 20px;
+  }
+
+  .modal-action-btn {
+    width: 100%; padding: 11px;
+    border: 1.5px solid #d2d2d7; border-radius: 10px;
+    background: #fff; font-size: 14px; font-weight: 500;
+    color: #1d1d1f; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    transition: background 0.15s;
+    margin-bottom: 10px;
+  }
+  .modal-action-btn:hover:not(:disabled) { background: #f5f5f7; }
+  .modal-action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .modal-close-btn {
+    width: 100%; padding: 11px;
+    border: none; border-radius: 10px;
+    background: #f5f5f7; font-size: 14px; font-weight: 500;
+    color: #6e6e73; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .modal-close-btn:hover { background: #e8e8ed; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .btn-spinner {
+    width: 14px; height: 14px;
+    border: 2px solid rgba(0,0,0,0.15);
+    border-top-color: #1d1d1f;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+
+  /* Settings gear button */
+  .settings-btn {
+    padding: 5px 10px;
+    border: 1px solid #d2d2d7; border-radius: 8px;
+    background: #fff; cursor: pointer;
+    color: #1d1d1f; font-size: 16px; line-height: 1;
+    transition: background 0.15s;
+    display: flex; align-items: center;
+  }
+  .settings-btn:hover { background: #f5f5f7; }
+</style>
+</head>
+<body>
+
+<div id="login-screen" style="display:none;">
+  <div class="login-card">
+    <div class="login-icon">🖨️</div>
+    <h1 class="login-title">Printer</h1>
+    <p class="login-subtitle">Sign in to access the printer.</p>
+    <a href="/auth/login" class="google-btn">
+      <svg class="google-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+      </svg>
+      Sign in with Google
+    </a>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
+  <header class="app-header">
+    <div style="display:flex;align-items:center;gap:12px">
+      <a href="/" style="font-size:.8125rem;color:#0071e3;text-decoration:none;font-weight:500;">← 메인</a>
+      <span class="app-logo">🖨️ Printer</span>
+    </div>
+    <div class="header-right">
+      <button class="settings-btn" onclick="openSettings()" title="설정">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+      <button class="signout-btn" onclick="logout()">Sign out</button>
+    </div>
+  </header>
+
+  <main class="board">
+
+    <!-- Print column -->
+    <div class="column">
+      <div class="col-header">
+        <span class="col-title">Print</span>
+      </div>
+      <div class="col-body print-col">
+        <input id="title" type="text" placeholder="할일 #1" maxlength="40"
+               onkeydown="if(event.key==='Enter') sendPrint()">
+        <button id="print-btn" onclick="sendPrint()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+          Print
+        </button>
+        <div id="toast" class="toast"></div>
+      </div>
+    </div>
+
+    <!-- Progress column -->
+    <div class="column">
+      <div class="col-header">
+        <span class="col-title">In Progress</span>
+        <span class="col-count" id="progress-count">0</span>
+      </div>
+      <div class="col-body">
+        <ul class="job-list" id="progress-list"></ul>
+      </div>
+    </div>
+
+    <!-- Done column -->
+    <div class="column">
+      <div class="col-header">
+        <span class="col-title">Done</span>
+        <span class="col-count done-count" id="done-count">0</span>
+      </div>
+      <div class="col-body">
+        <ul class="job-list" id="done-list"></ul>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Settings modal -->
+<div class="modal-backdrop" id="settings-modal" onclick="onBackdropClick(event)">
+  <div class="settings-modal">
+    <h2>설정</h2>
+
+    <div class="modal-row">
+      <div>
+        <div class="modal-row-label">프린트 출력</div>
+        <div class="modal-row-sub">할일 추가 시 실제 프린터 출력</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="print-toggle" onchange="onPrintToggle(this)">
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+    </div>
+
+    <hr class="modal-divider">
+
+    <div class="modal-row">
+      <div>
+        <div class="modal-row-label">Jira 연동</div>
+        <div class="modal-row-sub" id="jira-status-sub">확인 중…</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="jira-toggle" disabled onchange="onJiraToggle(this)">
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+    </div>
+
+    <hr class="modal-divider">
+
+    <button class="modal-action-btn" id="sync-btn" onclick="syncJira()" disabled>
+      Jira 동기화
+    </button>
+
+    <button class="modal-close-btn" onclick="closeSettings()">닫기</button>
+  </div>
+</div>
+
+<script src="auth.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

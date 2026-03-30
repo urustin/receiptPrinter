@@ -1,5 +1,89 @@
 initAuth();
 
+// ── Print toggle (localStorage) ───────────────────
+function isPrintEnabled() {
+  return localStorage.getItem('printer_print_enabled') !== 'false';
+}
+
+function onPrintToggle(checkbox) {
+  localStorage.setItem('printer_print_enabled', checkbox.checked ? 'true' : 'false');
+}
+
+// ── Settings modal ────────────────────────────────
+let jiraConfigured = false;
+
+function openSettings() {
+  document.getElementById('print-toggle').checked = isPrintEnabled();
+  document.getElementById('settings-modal').classList.add('open');
+  loadJiraStatus();
+}
+
+function closeSettings() {
+  document.getElementById('settings-modal').classList.remove('open');
+}
+
+function onBackdropClick(e) {
+  if (e.target === document.getElementById('settings-modal')) closeSettings();
+}
+
+async function loadJiraStatus() {
+  const toggle = document.getElementById('jira-toggle');
+  const sub    = document.getElementById('jira-status-sub');
+  const syncBtn = document.getElementById('sync-btn');
+  sub.textContent = '확인 중…';
+  toggle.disabled = true;
+  try {
+    const res  = await authFetch('/settings/jira');
+    const data = await res.json();
+    jiraConfigured = data.configured;
+    toggle.checked  = jiraConfigured;
+    toggle.disabled = false;
+    sub.textContent = jiraConfigured ? '연동됨' : '미설정';
+    syncBtn.disabled = !jiraConfigured;
+  } catch {
+    sub.textContent = '확인 실패';
+  }
+}
+
+function onJiraToggle(checkbox) {
+  if (!checkbox.checked) {
+    // turning off → just go to settings page
+    checkbox.checked = true; // revert visual until navigated away
+    closeSettings();
+    location.href = '/settings';
+  } else {
+    closeSettings();
+    location.href = '/settings';
+  }
+}
+
+// ── Sync all jobs to Jira ─────────────────────────
+async function syncJira() {
+  const btn = document.getElementById('sync-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> 동기화 중…';
+  try {
+    const res  = await authFetch('/jobs/sync-jira', { method: 'POST' });
+    const data = await res.json();
+    closeSettings();
+    if (res.ok) {
+      const parts = [];
+      if (data.inserted) parts.push(`${data.inserted}개 추가`);
+      if (data.updated)  parts.push(`${data.updated}개 업데이트`);
+      const msg = parts.length ? `✓ ${parts.join(', ')} 완료` : '✓ 이미 최신 상태입니다';
+      showToast(msg, 'success');
+      loadBoard();
+    } else {
+      showToast('동기화 실패: ' + (data.detail || res.status), 'error');
+    }
+  } catch {
+    showToast('연결 오류가 발생했습니다.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Jira 동기화';
+  }
+}
+
 // ── Load board ────────────────────────────────────
 async function loadBoard() {
   try {
@@ -65,13 +149,13 @@ async function sendPrint() {
   btn.textContent = 'Printing…';
 
   try {
-    const res = await authFetch('/print', {
+    const res = await authFetch('/api/print', {
       method: 'POST',
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title, print_enabled: isPrintEnabled() }),
     });
     const data = await res.json();
     if (res.ok) {
-      showToast('✓ Printed!', 'success');
+      showToast(isPrintEnabled() ? '✓ Printed!' : '✓ 추가됨', 'success');
       input.value = '';
       loadBoard();
     } else {

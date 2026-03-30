@@ -131,9 +131,20 @@
       border: none; border-radius: 10px;
       font-size: 15px; font-weight: 600;
       cursor: pointer; transition: background 0.15s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
     }
     .save-btn:hover { background: #0077ed; }
     .save-btn:disabled { background: #a1a1a6; cursor: not-allowed; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
 
     .status-banner {
       display: none;
@@ -181,7 +192,7 @@
 <div id="app" style="display:none">
   <header>
     <div class="header-left">
-      <a href="/hub">← 메인</a>
+      <a href="/">← 메인</a>
       <h1>설정</h1>
     </div>
     <button class="sign-out-btn" onclick="logout()">로그아웃</button>
@@ -220,6 +231,12 @@
         </div>
 
         <div class="field">
+          <label>Board ID</label>
+          <input type="text" id="jira_board_id" placeholder="1">
+          <div class="field-hint">스프린트 보드 ID (Jira 보드 URL에서 확인)</div>
+        </div>
+
+        <div class="field">
           <label>티켓 생성 방식</label>
           <div class="radio-group">
             <label class="radio-option" id="mode-subtask" onclick="setMode('SUBTASK')">
@@ -228,7 +245,7 @@
             </label>
             <label class="radio-option" id="mode-task" onclick="setMode('TASK')">
               <input type="radio" name="ticket_mode" value="TASK">
-              독립 태스크
+              태스크
             </label>
           </div>
         </div>
@@ -239,20 +256,6 @@
             <input type="text" id="jira_parent_key" placeholder="PROJ-123">
             <div class="field-hint">프린트 시 생성되는 서브태스크의 부모 태스크 키</div>
           </div>
-        </div>
-
-        <div class="conditional-field" id="field-board">
-          <div class="field">
-            <label>Board ID (독립 태스크 모드)</label>
-            <input type="text" id="jira_board_id" placeholder="1">
-            <div class="field-hint">스프린트 보드 ID (URL에서 확인)</div>
-          </div>
-        </div>
-
-        <div class="field" style="margin-top:16px">
-          <label>Temp Key (선택)</label>
-          <input type="text" id="jira_temp_key" placeholder="PROJ-456">
-          <div class="field-hint">서브태스크 배열 페이지에서 미지정 서브태스크를 담는 태스크 키</div>
         </div>
 
         <div style="margin-top:24px">
@@ -295,7 +298,6 @@
         document.getElementById('jira_project_key').value = data.jira_project_key || '';
         document.getElementById('jira_parent_key').value  = data.jira_parent_key || '';
         document.getElementById('jira_board_id').value    = data.jira_board_id || '';
-        document.getElementById('jira_temp_key').value    = data.jira_temp_key || '';
         setMode(data.ticket_mode || 'SUBTASK');
       } else {
         badge.innerHTML = '<span class="not-configured-badge">미설정</span>';
@@ -311,44 +313,62 @@
     document.getElementById('mode-subtask').classList.toggle('selected', mode === 'SUBTASK');
     document.getElementById('mode-task').classList.toggle('selected', mode === 'TASK');
     document.getElementById('field-parent-key').classList.toggle('visible', mode === 'SUBTASK');
-    document.getElementById('field-board').classList.toggle('visible', mode === 'TASK');
+  }
+
+  function setLoading(on, msg = '') {
+    const btn = document.getElementById('save-btn');
+    btn.disabled = on;
+    btn.innerHTML = on
+      ? `<span class="spinner"></span>${msg}`
+      : '저장';
   }
 
   async function saveSettings(e) {
     e.preventDefault();
-    const btn = document.getElementById('save-btn');
-    btn.disabled = true;
-    btn.textContent = '저장 중...';
     hideBanner();
 
+    const parentKey = document.getElementById('jira_parent_key').value.trim();
     const body = {
       jira_base_url:    document.getElementById('jira_base_url').value.trim(),
       jira_email:       document.getElementById('jira_email').value.trim(),
       jira_api_token:   document.getElementById('jira_api_token').value,
       jira_project_key: document.getElementById('jira_project_key').value.trim(),
-      jira_parent_key:  document.getElementById('jira_parent_key').value.trim(),
+      jira_parent_key:  parentKey,
       jira_board_id:    document.getElementById('jira_board_id').value.trim(),
-      jira_temp_key:    document.getElementById('jira_temp_key').value.trim(),
+      jira_temp_key:    parentKey,  // temp_key = parent_key
       ticket_mode:      currentMode,
     };
 
+    // Step 1: test connection
+    setLoading(true, 'Jira 연결 확인 중...');
     try {
-      const res = await authFetch('/settings/jira', {
+      const testRes = await authFetch('/settings/jira/test', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      const testData = await testRes.json();
+      if (!testRes.ok) {
+        showBanner('연결 실패: ' + (testData.detail || testRes.status), 'error');
+        return;
+      }
+
+      // Step 2: save
+      setLoading(true, '저장 중...');
+      const saveRes = await authFetch('/settings/jira', {
         method: 'PUT',
         body: JSON.stringify(body),
       });
-      if (res.ok) {
-        showBanner('저장되었습니다.', 'success');
+      if (saveRes.ok) {
+        showBanner(`✓ 저장 완료! 프로젝트: ${testData.project_name}`, 'success');
         loadSettings();
       } else {
-        const data = await res.json();
-        showBanner('저장 실패: ' + (data.detail || res.status), 'error');
+        const saveData = await saveRes.json();
+        showBanner('저장 실패: ' + (saveData.detail || saveRes.status), 'error');
       }
-    } catch (e) {
+    } catch (err) {
       showBanner('연결 오류가 발생했습니다.', 'error');
     } finally {
-      btn.disabled = false;
-      btn.textContent = '저장';
+      setLoading(false);
     }
   }
 

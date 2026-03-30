@@ -8,6 +8,57 @@ logger = logging.getLogger(__name__)
 SUBTASK_TYPE_ID = "10002"
 DONE_TRANSITION = "51"
 
+# Cache: "{base_url}|{project_key}" -> {"epic": ["에픽"], "task": ["작업"], "subtask": ["하위 작업"], "subtask_id": "id"}
+_type_cache: dict = {}
+
+
+def _discover_types(project_key: str, cfg: "JiraConfig") -> dict:
+    """Discover issue type names by hierarchy level for a project.
+    Returns dict with keys: epic (list), task (list), subtask (list), subtask_id (str).
+    Falls back to English names if discovery fails.
+    """
+    cache_key = f"{cfg.base_url}|{project_key}"
+    if cache_key in _type_cache:
+        return _type_cache[cache_key]
+
+    defaults = {
+        "epic": ["Epic"], "task": ["Task"],
+        "subtask": ["Subtask"], "subtask_id": SUBTASK_TYPE_ID,
+    }
+    try:
+        res = httpx.get(
+            f"{cfg.base_url}/rest/api/3/project/{project_key}",
+            auth=cfg.auth, timeout=10,
+        )
+        res.raise_for_status()
+        issue_types = res.json().get("issueTypes", [])
+        result: dict = {"epic": [], "task": [], "subtask": [], "subtask_id": SUBTASK_TYPE_ID}
+        for t in issue_types:
+            hl = t.get("hierarchyLevel", 0)
+            sub = t.get("subtask", False)
+            if hl == 1 and not sub:
+                result["epic"].append(t["name"])
+            elif hl == -1 or sub:
+                result["subtask"].append(t["name"])
+                result["subtask_id"] = t["id"]  # last one wins; fine for single subtask type
+            elif hl == 0 and not sub:
+                result["task"].append(t["name"])
+        # Fall back to English if any bucket is empty
+        if not result["epic"]:   result["epic"]    = ["Epic"]
+        if not result["task"]:   result["task"]    = ["Task"]
+        if not result["subtask"]:result["subtask"] = ["Subtask"]
+        _type_cache[cache_key] = result
+        return result
+    except Exception as e:
+        logger.warning("_discover_types failed for %s: %s", project_key, e)
+        return defaults
+
+
+def _jql_in(names: list[str]) -> str:
+    """Build JQL issuetype IN (...) clause from a list of names."""
+    quoted = ", ".join(f'"{n}"' for n in names)
+    return f"issuetype in ({quoted})"
+
 
 @dataclass
 class JiraConfig:
@@ -181,8 +232,9 @@ def _search(jql: str, fields: str, cfg: JiraConfig, max_results: int = 100) -> l
 
 def get_epics_and_tasks(cfg: "JiraConfig | None" = None) -> dict:
     c = _get_cfg(cfg)
+    types = _discover_types(c.project_key, c)
     epics_raw = _search(
-        f"project={c.project_key} AND issuetype=Epic ORDER BY created DESC",
+        f"project={c.project_key} AND {_jql_in(types['epic'])} ORDER BY created DESC",
         "summary,status", c,
     )
     epics = [
@@ -195,7 +247,7 @@ def get_epics_and_tasks(cfg: "JiraConfig | None" = None) -> dict:
     ]
 
     tasks_raw = _search(
-        f"project={c.project_key} AND issuetype=Task ORDER BY created DESC",
+        f"project={c.project_key} AND {_jql_in(types['task'])} ORDER BY created DESC",
         "summary,status,parent,customfield_10014", c,
     )
     tasks = []
@@ -242,8 +294,9 @@ def assign_task_to_epic(task_key: str, epic_key: "str | None", cfg: "JiraConfig 
 
 def get_tasks_and_subtasks(cfg: "JiraConfig | None" = None) -> dict:
     c = _get_cfg(cfg)
+    types = _discover_types(c.project_key, c)
     tasks_raw = _search(
-        f"project={c.project_key} AND issuetype=Task ORDER BY created DESC",
+        f"project={c.project_key} AND {_jql_in(types['task'])} ORDER BY created DESC",
         "summary,status", c,
     )
     tasks = [
@@ -256,7 +309,7 @@ def get_tasks_and_subtasks(cfg: "JiraConfig | None" = None) -> dict:
     ]
 
     subtasks_raw = _search(
-        f"project={c.project_key} AND issuetype=Subtask ORDER BY created DESC",
+        f"project={c.project_key} AND issuetype in subTaskIssueTypes() ORDER BY created DESC",
         "summary,status,parent", c,
     )
     subtasks = []
@@ -346,9 +399,10 @@ def _fmt_issue(i: dict, include_parent: bool = False) -> dict:
 
 def get_all_items(cfg: "JiraConfig | None" = None) -> dict:
     c = _get_cfg(cfg)
-    epics_raw    = _search(f"project={c.project_key} AND issuetype=Epic ORDER BY created DESC",    "summary,status,duedate", c)
-    tasks_raw    = _search(f"project={c.project_key} AND issuetype=Task ORDER BY created DESC",    "summary,status,duedate", c)
-    subtasks_raw = _search(f"project={c.project_key} AND issuetype=Subtask ORDER BY created DESC", "summary,status,duedate,parent", c)
+    types = _discover_types(c.project_key, c)
+    epics_raw    = _search(f"project={c.project_key} AND {_jql_in(types['epic'])} ORDER BY created DESC",    "summary,status,duedate", c)
+    tasks_raw    = _search(f"project={c.project_key} AND {_jql_in(types['task'])} ORDER BY created DESC",    "summary,status,duedate", c)
+    subtasks_raw = _search(f"project={c.project_key} AND issuetype in subTaskIssueTypes() ORDER BY created DESC", "summary,status,duedate,parent", c)
     return {
         "epics":    [_fmt_issue(i) for i in epics_raw],
         "tasks":    [_fmt_issue(i) for i in tasks_raw],
@@ -359,10 +413,11 @@ def get_all_items(cfg: "JiraConfig | None" = None) -> dict:
 def create_epic(title: str, cfg: "JiraConfig | None" = None) -> "dict | None":
     c = _get_cfg(cfg)
     try:
+        types = _discover_types(c.project_key, c)
         res = httpx.post(
             f"{c.base_url}/rest/api/3/issue",
             auth=c.auth,
-            json={"fields": {"project": {"key": c.project_key}, "summary": title, "issuetype": {"name": "Epic"}}},
+            json={"fields": {"project": {"key": c.project_key}, "summary": title, "issuetype": {"name": types["epic"][0]}}},
             timeout=10,
         )
         res.raise_for_status()
@@ -375,10 +430,11 @@ def create_epic(title: str, cfg: "JiraConfig | None" = None) -> "dict | None":
 def create_task_item(title: str, cfg: "JiraConfig | None" = None) -> "dict | None":
     c = _get_cfg(cfg)
     try:
+        types = _discover_types(c.project_key, c)
         res = httpx.post(
             f"{c.base_url}/rest/api/3/issue",
             auth=c.auth,
-            json={"fields": {"project": {"key": c.project_key}, "summary": title, "issuetype": {"name": "Task"}}},
+            json={"fields": {"project": {"key": c.project_key}, "summary": title, "issuetype": {"name": types["task"][0]}}},
             timeout=10,
         )
         res.raise_for_status()
@@ -395,6 +451,8 @@ def create_task_item(title: str, cfg: "JiraConfig | None" = None) -> "dict | Non
 def create_subtask_item(title: str, cfg: "JiraConfig | None" = None) -> "dict | None":
     c = _get_cfg(cfg)
     try:
+        types = _discover_types(c.project_key, c)
+        issue_type: dict = {"id": types["subtask_id"]} if types.get("subtask_id") else {"name": types["subtask"][0]}
         res = httpx.post(
             f"{c.base_url}/rest/api/3/issue",
             auth=c.auth,
@@ -402,7 +460,7 @@ def create_subtask_item(title: str, cfg: "JiraConfig | None" = None) -> "dict | 
                 "project":   {"key": c.project_key},
                 "parent":    {"key": c.parent_key},
                 "summary":   title,
-                "issuetype": {"id": SUBTASK_TYPE_ID},
+                "issuetype": issue_type,
             }},
             timeout=10,
         )
@@ -434,6 +492,40 @@ def mark_done_issue(issue_key: str, cfg: "JiraConfig | None" = None) -> bool:
     if not done:
         return apply_transition(issue_key, DONE_TRANSITION, cfg)
     return apply_transition(issue_key, done["id"], cfg)
+
+
+def get_printer_items(cfg: "JiraConfig | None" = None) -> list:
+    """Return items from Jira that belong on the printer page.
+    SUBTASK mode: subtasks under parent_key.
+    TASK mode: tasks in the project.
+    Each item has: key, summary, status_done (bool).
+    """
+    c = _get_cfg(cfg)
+    if c.ticket_mode == "SUBTASK":
+        jql = f"project={c.project_key} AND issuetype in subTaskIssueTypes() ORDER BY created DESC"
+    else:
+        types = _discover_types(c.project_key, c)
+        jql = f"project={c.project_key} AND {_jql_in(types['task'])} ORDER BY created DESC"
+    raw = _search(jql, "summary,status", c)
+    return [
+        {
+            "key": i["key"],
+            "summary": i["fields"]["summary"],
+            "status_done": i["fields"]["status"].get("statusCategory", {}).get("key") == "done",
+        }
+        for i in raw
+    ]
+
+
+def mark_in_progress(issue_key: str, cfg: "JiraConfig | None" = None) -> bool:
+    transitions = get_transitions(issue_key, cfg)
+    inprog = next(
+        (t for t in transitions if "in progress" in t["name"].lower() or "진행" in t["name"].lower()),
+        None,
+    )
+    if not inprog:
+        return False
+    return apply_transition(issue_key, inprog["id"], cfg)
 
 
 def set_due_date(issue_key: str, due_date: "str | None", cfg: "JiraConfig | None" = None) -> bool:

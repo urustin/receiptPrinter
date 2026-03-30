@@ -1,7 +1,10 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import logging
 from fastapi import FastAPI, HTTPException, Depends
+
+logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel
@@ -183,16 +186,13 @@ def get_user_jira_cfg(email: str) -> "JiraConfig | None":
 
 
 def require_jira_cfg(user) -> JiraConfig:
-    """Get Jira config for user (DB first, then env fallback). Raises 400 if unconfigured."""
+    """Get Jira config for user from DB only. Raises 400 if unconfigured."""
     cfg = get_user_jira_cfg(user["email"])
     if cfg:
         return cfg
-    env = jira_client._env_cfg()
-    if env:
-        return env
     raise HTTPException(
         status_code=400,
-        detail="Jira가 설정되지 않았습니다. 설정 페이지에서 Jira 정보를 입력해 주세요."
+        detail="JIRA_NOT_CONFIGURED"
     )
 
 
@@ -231,6 +231,35 @@ class JiraSettingsRequest(BaseModel):
     jira_board_id: str = ""
     jira_temp_key: str = ""
     ticket_mode: str = "SUBTASK"
+
+
+@app.post("/settings/jira/test")
+def test_jira_settings(body: JiraSettingsRequest, user=Depends(require_auth)):
+    """Test Jira credentials without saving. Returns project name on success."""
+    token = body.jira_api_token.strip()
+    if not token or token == "••••••••":
+        saved = get_user_jira_cfg(user["email"])
+        token = saved.api_token if saved else ""
+    if not token:
+        raise HTTPException(status_code=400, detail="API Token이 필요합니다.")
+    cfg = JiraConfig(
+        base_url=body.jira_base_url.rstrip("/"),
+        email=body.jira_email,
+        api_token=token,
+        project_key=body.jira_project_key,
+    )
+    import httpx as _httpx
+    try:
+        res = _httpx.get(
+            f"{cfg.base_url}/rest/api/3/project/{cfg.project_key}",
+            auth=cfg.auth,
+            timeout=10,
+        )
+        if res.status_code == 200:
+            return {"ok": True, "project_name": res.json().get("name", cfg.project_key)}
+        raise HTTPException(status_code=400, detail=f"Jira 응답 오류: {res.status_code}")
+    except _httpx.RequestError as e:
+        raise HTTPException(status_code=400, detail=f"연결 오류: {e}")
 
 
 @app.put("/settings/jira")
@@ -345,6 +374,65 @@ def delete_job(job_id: int, user=Depends(require_auth)):
 
 class ReorderRequest(BaseModel):
     ids: list[int]
+
+
+@app.post("/jobs/sync-jira")
+def sync_jobs_from_jira(user=Depends(require_auth)):
+    """Pull items from Jira and upsert into print_jobs.
+    New items are inserted; existing ones have their status updated.
+    Jira statusCategory=done → printer 'done', otherwise 'progress'.
+    """
+    cfg = get_user_jira_cfg(user["email"])
+    if not cfg:
+        raise HTTPException(status_code=400, detail="JIRA_NOT_CONFIGURED")
+
+    try:
+        items = jira_client.get_printer_items(cfg)
+    except Exception as e:
+        logger.error("sync-jira fetch error: %s", e)
+        raise HTTPException(status_code=500, detail=f"Jira 조회 실패: {e}")
+
+    inserted = updated = 0
+    now_kst = datetime.now(KST)
+
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT jira_key, status FROM print_jobs"
+                " WHERE printed_by = %s AND jira_key IS NOT NULL",
+                (user["email"],),
+            )
+            existing = {row["jira_key"]: row["status"] for row in cur.fetchall()}
+
+        with conn.cursor() as cur:
+            for item in items:
+                jira_key  = item["key"]
+                new_status = "done" if item["status_done"] else "progress"
+                completed  = now_kst if new_status == "done" else None
+
+                if jira_key in existing:
+                    if existing[jira_key] != new_status:
+                        cur.execute(
+                            "UPDATE print_jobs SET status=%s, completed_at=%s"
+                            " WHERE jira_key=%s AND printed_by=%s",
+                            (new_status, completed, jira_key, user["email"]),
+                        )
+                        updated += 1
+                else:
+                    cur.execute(
+                        "INSERT INTO print_jobs"
+                        " (title, printed_by, status, sort_order, jira_key, completed_at)"
+                        " VALUES (%s, %s, %s,"
+                        "  COALESCE((SELECT MIN(sort_order)-1 FROM print_jobs p2"
+                        "            WHERE p2.printed_by=%s AND p2.status='progress'), 0),"
+                        "  %s, %s)",
+                        (item["summary"], user["email"], new_status,
+                         user["email"], jira_key, completed),
+                    )
+                    inserted += 1
+        conn.commit()
+
+    return {"inserted": inserted, "updated": updated, "total": len(items)}
 
 
 @app.patch("/jobs/reorder")
@@ -513,31 +601,32 @@ def assign_subtask_parent(subtask_key: str, body: AssignParentRequest, user=Depe
 
 class PrintRequest(BaseModel):
     title: str
+    print_enabled: bool = True
 
 
-@app.post("/print")
+@app.post("/api/print")
 def print_receipt(body: PrintRequest, user=Depends(require_auth)):
     title = body.title.strip()
     if not title:
         raise HTTPException(status_code=400, detail="Title is required")
 
-    now = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
-    lines = [
-        (title,    FONT_SIZE_TITLE, True),
-        ("─" * 28, FONT_SIZE_BODY,  True),
-        (now,      FONT_SIZE_SMALL, True),
-    ]
-    img = _text_to_image(lines)
-
     p = None
     try:
-        p = File(DEVICE)
-        p.image(img)
-        p.text("\n")
-        p.cut()
+        if body.print_enabled:
+            now = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
+            lines = [
+                (title,    FONT_SIZE_TITLE, True),
+                ("─" * 28, FONT_SIZE_BODY,  True),
+                (now,      FONT_SIZE_SMALL, True),
+            ]
+            img = _text_to_image(lines)
+            p = File(DEVICE)
+            p.image(img)
+            p.text("\n")
+            p.cut()
 
-        # Create Jira issue for any user who has Jira configured
-        cfg = get_user_jira_cfg(user["email"]) or jira_client._env_cfg()
+        # Create Jira issue for any user who has Jira configured in DB
+        cfg = get_user_jira_cfg(user["email"])
         jira_key = jira_client.create_issue(title, cfg) if cfg else None
 
         with get_db() as conn:
