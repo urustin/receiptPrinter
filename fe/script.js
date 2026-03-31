@@ -1,4 +1,4 @@
-initAuth();
+initSubPageAuth('/print');
 
 // ── Print toggle (localStorage) ───────────────────
 function isPrintEnabled() {
@@ -114,9 +114,14 @@ function renderList(listId, countId, items, isDone) {
         </svg>
       </span>` : ''}
       <span class="job-title">${escHtml(r.title)}</span>
-      <span class="job-time">${isDone ? (r.completed_at ?? r.printed_at) : r.printed_at}</span>
-      ${!isDone ? `
+      <span class="job-time">${formatDate(isDone ? (r.completed_at ?? r.printed_at) : r.printed_at)}</span>
       <div class="job-actions">
+        ${!isDone ? `<button class="btn-reprint" title="Print" onclick="reprintJob(${r.id})">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+          </svg>
+        </button>` : ''}
+        ${!isDone ? `
         <button class="btn-done" title="Mark done" onclick="markDone(${r.id})">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
             <polyline points="20 6 9 17 4 12"/>
@@ -126,8 +131,8 @@ function renderList(listId, countId, items, isDone) {
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
           </svg>
-        </button>
-      </div>` : ''}
+        </button>` : ''}
+      </div>
     </li>`).join('');
 
   if (!isDone) initDrag(list);
@@ -135,6 +140,14 @@ function renderList(listId, countId, items, isDone) {
 
 function escHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function formatDate(ts) {
+  const d = new Date(ts);
+  const yy = String(d.getFullYear()).slice(2);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yy}/${mm}/${dd}`;
 }
 
 // ── Print ─────────────────────────────────────────
@@ -166,6 +179,20 @@ async function sendPrint() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg> Print`;
+  }
+}
+
+// ── Reprint ───────────────────────────────────────
+async function reprintJob(id) {
+  try {
+    const res = await authFetch(`/jobs/${id}/reprint`, {
+      method: 'POST',
+      body: JSON.stringify({ print_enabled: isPrintEnabled() }),
+    });
+    if (res.ok) showToast(isPrintEnabled() ? '✓ Printed!' : '✓ (프린트 꺼짐)', 'success');
+    else showToast('오류가 발생했습니다.', 'error');
+  } catch {
+    showToast('Connection error.', 'error');
   }
 }
 

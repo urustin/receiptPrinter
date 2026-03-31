@@ -77,9 +77,6 @@ def init_db():
                 ADD COLUMN IF NOT EXISTS jira_key TEXT
             """)
             cur.execute("""
-                UPDATE print_jobs SET sort_order = id WHERE sort_order = 0
-            """)
-            cur.execute("""
                 CREATE TABLE IF NOT EXISTS jira_order (
                     issue_key TEXT PRIMARY KEY,
                     sort_order INTEGER NOT NULL DEFAULT 0
@@ -620,6 +617,9 @@ class PrintRequest(BaseModel):
     title: str
     print_enabled: bool = True
 
+class ReprintRequest(BaseModel):
+    print_enabled: bool = True
+
 
 @app.post("/api/print")
 def print_receipt(body: PrintRequest, user=Depends(require_auth)):
@@ -662,6 +662,41 @@ def print_receipt(body: PrintRequest, user=Depends(require_auth)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+    finally:
+        if p:
+            p.close()
+
+
+@app.post("/jobs/{job_id}/reprint")
+def reprint_job(job_id: int, body: ReprintRequest, user=Depends(require_auth)):
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT title FROM print_jobs WHERE id=%s AND printed_by=%s",
+                (job_id, user["email"])
+            )
+            row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    title = row[0]
+    p = None
+    try:
+        if body.print_enabled:
+            now = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
+            lines = [
+                (title,    FONT_SIZE_TITLE, True),
+                ("─" * 28, FONT_SIZE_BODY,  True),
+                (now,      FONT_SIZE_SMALL, True),
+            ]
+            img = _text_to_image(lines)
+            p = File(DEVICE)
+            p.image(img)
+            p.text("\n")
+            p.cut()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         if p:
             p.close()
