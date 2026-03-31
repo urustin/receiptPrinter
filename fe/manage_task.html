@@ -412,9 +412,11 @@
   }
 
   // ── Render ─────────────────────────────────────────
-  function statusClass(s, done) {
-    if (done) return 's-done';
-    const l = s.toLowerCase();
+  function statusClass(s, done, statusCategory) {
+    if (done || statusCategory === 'done') return 's-done';
+    if (statusCategory === 'indeterminate') return 's-inprogress';
+    if (statusCategory === 'new') return 's-todo';
+    const l = (s || '').toLowerCase();
     if (l.includes('done') || l.includes('완료') || l.includes('closed')) return 's-done';
     if (l.includes('progress') || l.includes('진행') || l.includes('review')) return 's-inprogress';
     return 's-todo';
@@ -450,7 +452,7 @@
 
   function itemCardHtml(item, type) {
     const cls   = type === 'epic' ? 'epic-card' : type === 'task' ? 'task-card' : 'sub-card';
-    const sc    = statusClass(item.status, item.status_done);
+    const sc    = statusClass(item.status, item.status_done, item.status_category);
     const isEd  = editState && editState.key === item.key;
 
     const titleHtml = isEd
@@ -494,12 +496,12 @@
   }
 
   function statusPriority(item) {
-    if (item.status_done || statusClass(item.status, item.status_done) === 's-done') return 4;
+    if (item.status_done || item.status_category === 'done') return 4;
     const s = (item.status || '').toLowerCase();
     if (s.includes('always')) return 0;
-    if (s.includes('progress') || s.includes('진행') || s.includes('review')) return 1;
+    if (item.status_category === 'indeterminate' || s.includes('progress') || s.includes('진행') || s.includes('review')) return 1;
     if (s.includes('idea')) return 3;
-    return 2; // To Do / default
+    return 2;
   }
 
   function sortByStatus(arr) {
@@ -772,11 +774,11 @@
     const popup = document.getElementById('transition-popup');
     if (!transitions.length) { popup.innerHTML = '<div class="transition-loading">가능한 전환 없음</div>'; return; }
     popup.innerHTML = transitions.map(t =>
-      `<div class="transition-item" onclick="applyTransition('${esc(t.id)}','${esc(t.name)}')">${esc(t.name)}</div>`
+      `<div class="transition-item" onclick="applyTransition('${esc(t.id)}','${esc(t.name)}','${esc(t.status_category_key||'')}')">${esc(t.name)}</div>`
     ).join('');
   }
 
-  async function applyTransition(transitionId, transitionName) {
+  async function applyTransition(transitionId, transitionName, transitionCategory) {
     document.getElementById('transition-popup').classList.remove('show');
     const key  = transitionIssueKey;
     const item = findItem(key);
@@ -784,8 +786,9 @@
 
     const prevStatus = item.status;
     const prevDone   = item.status_done;
-    item.status      = transitionName;
-    item.status_done = statusClass(transitionName, false) === 's-done';
+    item.status          = transitionName;
+    item.status_category = transitionCategory || '';
+    item.status_done     = transitionCategory === 'done';
     delete transitionsCache[key];
     render();
 

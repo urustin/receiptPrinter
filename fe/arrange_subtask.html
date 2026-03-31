@@ -448,8 +448,11 @@
   }
 
   // ── Render ─────────────────────────────────────────
-  function statusClass(s) {
-    const l = s.toLowerCase();
+  function statusClass(s, statusCategory) {
+    if (statusCategory === 'done') return 's-done';
+    if (statusCategory === 'indeterminate') return 's-inprogress';
+    if (statusCategory === 'new') return 's-todo';
+    const l = (s || '').toLowerCase();
     if (l.includes('done') || l.includes('완료') || l.includes('closed')) return 's-done';
     if (l.includes('progress') || l.includes('진행') || l.includes('review')) return 's-inprogress';
     return 's-todo';
@@ -462,9 +465,10 @@
   }
 
   function subtaskCardHtml(st) {
-    const sc = statusClass(st.status);
+    const sc = statusClass(st.status, st.status_category);
+    const doneOpacity = isDoneStatus(st.status, st.status_category) ? 'opacity:.5;' : '';
     return `
-      <div class="task-card" data-key="${esc(st.key)}" onpointerdown="startCardDrag(event,'${esc(st.key)}','${esc(st.parent_key || '')}')">
+      <div class="task-card" data-key="${esc(st.key)}" style="${doneOpacity}" onpointerdown="startCardDrag(event,'${esc(st.key)}','${esc(st.parent_key || '')}')">
         <span class="drag-handle">⠿</span>
         <div class="task-info">
           <div class="task-key">${esc(st.key)}</div>
@@ -474,18 +478,19 @@
       </div>`;
   }
 
-  function isDoneStatus(s) {
-    const l = s.toLowerCase();
+  function isDoneStatus(status, statusCategory) {
+    if (statusCategory) return statusCategory === 'done';
+    const l = (status || '').toLowerCase();
     return l.includes('done') || l.includes('완료') || l.includes('closed') || l.includes('resolved');
   }
 
-  function statusPriority(status) {
-    const s = (status || '').toLowerCase();
+  function statusPriority(item) {
+    if (isDoneStatus(item.status, item.status_category)) return 4;
+    const s = (item.status || '').toLowerCase();
     if (s.includes('always')) return 0;
     if (s.includes('progress') || s.includes('진행') || s.includes('review')) return 1;
     if (s.includes('idea')) return 3;
-    if (isDoneStatus(status)) return 4;
-    return 2; // To Do / default
+    return 2;
   }
 
   function render() {
@@ -494,9 +499,9 @@
       ? parentTasks.filter(t => t.key !== tempKey)
       : parentTasks;
 
-    const activeTasks = visibleTasks.filter(t => !isDoneStatus(t.status));
-    const doneTasks   = visibleTasks.filter(t =>  isDoneStatus(t.status));
-    activeTasks.sort((a, b) => statusPriority(a.status) - statusPriority(b.status));
+    const activeTasks = visibleTasks.filter(t => !isDoneStatus(t.status, t.status_category));
+    const doneTasks   = visibleTasks.filter(t =>  isDoneStatus(t.status, t.status_category));
+    activeTasks.sort((a, b) => statusPriority(a) - statusPriority(b));
 
     // Build map: taskKey → subtasks[]
     const taskMap = {};
@@ -511,9 +516,9 @@
       }
     }
     for (const key of Object.keys(taskMap)) {
-      taskMap[key].sort((a, b) => statusPriority(a.status) - statusPriority(b.status));
+      taskMap[key].sort((a, b) => statusPriority(a) - statusPriority(b));
     }
-    tempSubtasks.sort((a, b) => statusPriority(a.status) - statusPriority(b.status));
+    tempSubtasks.sort((a, b) => statusPriority(a) - statusPriority(b));
 
     document.getElementById('task-count').textContent = activeTasks.length;
     document.getElementById('temp-count').textContent = tempSubtasks.length;
@@ -577,8 +582,8 @@
 
   function renderedTaskOrder() {
     const vis = tempKey ? parentTasks.filter(t => t.key !== tempKey) : parentTasks;
-    const active = vis.filter(t => !isDoneStatus(t.status));
-    const done   = vis.filter(t =>  isDoneStatus(t.status));
+    const active = vis.filter(t => !isDoneStatus(t.status, t.status_category));
+    const done   = vis.filter(t =>  isDoneStatus(t.status, t.status_category));
     return { active, done };
   }
 
@@ -632,8 +637,8 @@
     const rendered = [...active, ...(showDoneTasks ? done : [])];
     const [moved] = rendered.splice(fromIdx, 1);
     rendered.splice(toIdx, 0, moved);
-    const newActive = rendered.filter(t => !isDoneStatus(t.status));
-    const newDone   = showDoneTasks ? rendered.filter(t => isDoneStatus(t.status)) : done;
+    const newActive = rendered.filter(t => !isDoneStatus(t.status, t.status_category));
+    const newDone   = showDoneTasks ? rendered.filter(t => isDoneStatus(t.status, t.status_category)) : done;
     const newOrder  = [...newActive, ...newDone];
     const tempTask  = tempKey ? parentTasks.find(t => t.key === tempKey) : null;
     parentTasks.splice(0, parentTasks.length, ...newOrder);

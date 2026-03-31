@@ -459,6 +459,23 @@ def get_epics_tasks(user=Depends(require_auth)):
     return jira_client.get_epics_and_tasks(require_jira_cfg(user))
 
 
+@app.get("/jira/epics-tasks-ordered")
+def get_epics_tasks_ordered(user=Depends(require_auth)):
+    data = jira_client.get_epics_and_tasks(require_jira_cfg(user))
+    all_keys = [i["key"] for i in data["epics"] + data["tasks"]]
+    if all_keys:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT issue_key, sort_order FROM jira_order WHERE issue_key = ANY(%s)",
+                    (all_keys,)
+                )
+                order_map = {row[0]: row[1] for row in cur.fetchall()}
+        data["epics"] = sorted(data["epics"], key=lambda i: order_map.get(i["key"], 999999))
+        data["tasks"] = sorted(data["tasks"], key=lambda i: order_map.get(i["key"], 999999))
+    return data
+
+
 @app.patch("/jira/tasks/{task_key}/epic")
 def assign_task_epic(task_key: str, body: AssignEpicRequest, user=Depends(require_auth)):
     if not jira_client.assign_task_to_epic(task_key, body.epic_key, require_jira_cfg(user)):

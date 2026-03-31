@@ -233,9 +233,12 @@ def get_epics_and_tasks(cfg: "JiraConfig | None" = None) -> dict:
             "key": i["key"],
             "summary": i["fields"]["summary"],
             "status": i["fields"]["status"]["name"],
+            "status_category": i["fields"]["status"].get("statusCategory", {}).get("key", ""),
         }
         for i in epics_raw
     ]
+
+    epic_keys = {e["key"] for e in epics}
 
     tasks_raw = _search(
         f"project={c.project_key} AND {_jql_in(types['task'])} ORDER BY created DESC",
@@ -245,11 +248,11 @@ def get_epics_and_tasks(cfg: "JiraConfig | None" = None) -> dict:
     for i in tasks_raw:
         f = i["fields"]
         epic_key = None
+        # Check parent field — language-agnostic: just check if parent key is a known epic
         parent = f.get("parent")
-        if parent:
-            ptype = parent.get("fields", {}).get("issuetype", {}).get("name", "")
-            if ptype == "Epic":
-                epic_key = parent["key"]
+        if parent and parent.get("key") in epic_keys:
+            epic_key = parent["key"]
+        # Fallback: classic epic link custom field
         if epic_key is None:
             cf = f.get("customfield_10014")
             if cf:
@@ -258,6 +261,7 @@ def get_epics_and_tasks(cfg: "JiraConfig | None" = None) -> dict:
             "key": i["key"],
             "summary": f["summary"],
             "status": f["status"]["name"],
+            "status_category": f["status"].get("statusCategory", {}).get("key", ""),
             "epic_key": epic_key,
         })
 
@@ -295,6 +299,7 @@ def get_tasks_and_subtasks(cfg: "JiraConfig | None" = None) -> dict:
             "key": i["key"],
             "summary": i["fields"]["summary"],
             "status": i["fields"]["status"]["name"],
+            "status_category": i["fields"]["status"].get("statusCategory", {}).get("key", ""),
         }
         for i in tasks_raw
     ]
@@ -310,6 +315,7 @@ def get_tasks_and_subtasks(cfg: "JiraConfig | None" = None) -> dict:
             "key": i["key"],
             "summary": i["fields"]["summary"],
             "status": i["fields"]["status"]["name"],
+            "status_category": i["fields"]["status"].get("statusCategory", {}).get("key", ""),
             "parent_key": parent["key"] if parent else None,
         })
 

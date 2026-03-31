@@ -410,7 +410,7 @@
     document.getElementById('board').style.display = 'none';
 
     try {
-      const res = await authFetch('/jira/epics-tasks');
+      const res = await authFetch('/jira/epics-tasks-ordered');
       if (res.status === 400) { alert('Jira 설정이 없습니다.\n설정 페이지로 이동합니다.'); location.replace('/settings'); return; }
       if (!res.ok) throw new Error(res.status);
       const data = await res.json();
@@ -437,23 +437,34 @@
     }
   }
 
-  // ── Status sort ────────────────────────────────────
-  function taskStatusPriority(status) {
+  // ── Done-to-bottom ─────────────────────────────────
+  function isStatusDone(status, statusCategory) {
+    if (statusCategory) return statusCategory === 'done';
     const s = (status || '').toLowerCase();
-    if (s.includes('always')) return 0;
-    if (s.includes('progress') || s.includes('진행') || s.includes('review')) return 1;
-    if (s.includes('idea')) return 3;
-    if (s.includes('done') || s.includes('완료') || s.includes('closed') || s.includes('resolved')) return 4;
-    return 2; // To Do / default
+    return s.includes('done') || s.includes('완료') || s.includes('closed') || s.includes('resolved');
   }
 
-  function sortTasksByStatus(arr) {
-    arr.sort((a, b) => taskStatusPriority(a.status) - taskStatusPriority(b.status));
+  // Stable-sort each epic group so done items are always last.
+  // Preserves manual order within non-done and done groups.
+  function applyDoneToBottom() {
+    const epicKeys = [...new Set(tasks.map(t => t.epic_key || null))];
+    const result = [];
+    for (const ek of epicKeys) {
+      const group = tasks.filter(t => (t.epic_key || null) === ek);
+      result.push(
+        ...group.filter(t => !isStatusDone(t.status, t.status_category)),
+        ...group.filter(t =>  isStatusDone(t.status, t.status_category)),
+      );
+    }
+    tasks.splice(0, tasks.length, ...result);
   }
 
   // ── Render ─────────────────────────────────────────
-  function statusClass(s) {
-    const l = s.toLowerCase();
+  function statusClass(s, statusCategory) {
+    if (statusCategory === 'done') return 's-done';
+    if (statusCategory === 'indeterminate') return 's-inprogress';
+    if (statusCategory === 'new') return 's-todo';
+    const l = (s || '').toLowerCase();
     if (l.includes('done') || l.includes('완료') || l.includes('closed')) return 's-done';
     if (l.includes('progress') || l.includes('진행') || l.includes('review')) return 's-inprogress';
     return 's-todo';
@@ -466,9 +477,10 @@
   }
 
   function taskCardHtml(task) {
-    const sc = statusClass(task.status);
+    const sc = statusClass(task.status, task.status_category);
+    const doneOpacity = isStatusDone(task.status, task.status_category) ? 'opacity:.5;' : '';
     return `
-      <div class="task-card" data-key="${esc(task.key)}" onpointerdown="startCardDrag(event,'${esc(task.key)}','${esc(task.epic_key || '')}')">
+      <div class="task-card" data-key="${esc(task.key)}" style="${doneOpacity}" onpointerdown="startCardDrag(event,'${esc(task.key)}','${esc(task.epic_key || '')}')">
         <span class="drag-handle">⠿</span>
         <div class="task-info">
           <div class="task-key">${esc(task.key)}</div>
@@ -479,6 +491,8 @@
   }
 
   function render() {
+    applyDoneToBottom();
+
     // Build map: epicKey → tasks[]
     const epicMap = {};
     for (const e of epics) epicMap[e.key] = [];
@@ -492,9 +506,7 @@
       }
     }
 
-    // Sort by status priority
-    for (const key of Object.keys(epicMap)) sortTasksByStatus(epicMap[key]);
-    sortTasksByStatus(unassigned);
+    // arrange_task is a manual-ordering page — no auto status sort here
 
     // Count
     document.getElementById('epic-count').textContent = epics.length;
@@ -591,6 +603,7 @@
     const [moved] = epics.splice(fromIdx, 1);
     epics.splice(toIdx, 0, moved);
     render();
+    authFetch('/jira/order', { method: 'POST', body: JSON.stringify({ keys: epics.map(e => e.key) }) }).catch(() => {});
   }
 
   // ── Card drag (pointer events) ─────────────────────
@@ -724,7 +737,7 @@
       return;
     }
     popup.innerHTML = transitions.map(t =>
-      `<div class="transition-item" onclick="applyTransition('${esc(t.id)}', '${esc(t.name)}')">${esc(t.name)}</div>`
+      `<div class="transition-item" onclick="applyTransition('${esc(t.id)}','${esc(t.name)}','${esc(t.status_category_key||'')}')">${esc(t.name)}</div>`
     ).join('');
   }
 
@@ -739,7 +752,7 @@
     }
   }
 
-  async function applyTransition(transitionId, transitionName) {
+  async function applyTransition(transitionId, transitionName, transitionCategory) {
     const popup = document.getElementById('transition-popup');
     popup.classList.remove('show');
 
@@ -747,9 +760,11 @@
     const task = tasks.find(t => t.key === issueKey);
     if (!task) return;
 
-    const prevStatus = task.status;
-    task.status = transitionName;
-    delete transitionsCache[issueKey]; // invalidate cache after transition
+    const prevStatus   = task.status;
+    const prevCategory = task.status_category;
+    task.status          = transitionName;
+    task.status_category = transitionCategory || '';
+    delete transitionsCache[issueKey];
     render();
 
     try {
@@ -761,7 +776,8 @@
       showToast(`${issueKey} → ${transitionName}`);
     } catch (e) {
       showToast('상태 변경 실패', 'error');
-      task.status = prevStatus;
+      task.status          = prevStatus;
+      task.status_category = prevCategory;
       render();
     }
   }
