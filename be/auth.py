@@ -7,7 +7,7 @@ from jose import jwt, JWTError
 
 ALGORITHM = "HS256"
 SECRET_KEY = os.environ["SECRET_KEY"]
-REDIRECT_URI = os.environ.get("REDIRECT_URI")  # e.g. https://print.ericfromkorea.dev/auth/callback
+REDIRECT_URI = os.environ.get("REDIRECT_URI")  # e.g. https://print.ericfromkorea.com/auth/callback
 
 oauth = OAuth()
 oauth.register(

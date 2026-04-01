@@ -65,9 +65,9 @@ docker compose up -d
 
 ```
 인터넷
-  └─ print.ericfromkorea.dev (DNS)
+  └─ print.ericfromkorea.com (DNS)
        └─ 공유기 포트포워딩  WAN 80/443 → 192.168.1.121 80/443
-            └─ 시스템 nginx  (/etc/nginx/sites-enabled/print.ericfromkorea.dev)
+            └─ 시스템 nginx  (/etc/nginx/sites-enabled/print.ericfromkorea.com)
                  ├─ HTTP(80)  → 301 HTTPS 리다이렉트
                  └─ HTTPS(443) SSL 종료 (Let's Encrypt)
                       └─ proxy_pass → http://localhost:60021
@@ -78,21 +78,21 @@ docker compose up -d
 
 ### 시스템 nginx 설정
 
-파일: `/etc/nginx/sites-enabled/print.ericfromkorea.dev`
+파일: `/etc/nginx/sites-enabled/print.ericfromkorea.com`
 
 ```nginx
 server {
     listen 80;
-    server_name print.ericfromkorea.dev;
+    server_name print.ericfromkorea.com;
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl;
-    server_name print.ericfromkorea.dev;
+    server_name print.ericfromkorea.com;
 
-    ssl_certificate     /etc/letsencrypt/live/print.ericfromkorea.dev/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/print.ericfromkorea.dev/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/print.ericfromkorea.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/print.ericfromkorea.com/privkey.pem;
 
     location / {
         proxy_pass http://localhost:60021;
