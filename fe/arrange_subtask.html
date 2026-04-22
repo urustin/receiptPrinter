@@ -524,8 +524,15 @@
   function renderedTaskOrder() {
     const vis = tempKey ? parentTasks.filter(t => t.key !== tempKey) : parentTasks;
     const active = vis.filter(t => !isDoneStatus(t.status, t.status_category));
+    active.sort((a, b) => statusPriority(a) - statusPriority(b));
     const done   = vis.filter(t =>  isDoneStatus(t.status, t.status_category));
     return { active, done };
+  }
+
+  function renderedSubtasksOf(parentKey) {
+    return subtasks
+      .filter(s => s.parent_key === parentKey)
+      .sort((a, b) => statusPriority(a) - statusPriority(b));
   }
 
   function startTaskDrag(event, key) {
@@ -596,7 +603,8 @@
     event.preventDefault();
     window.getSelection()?.removeAllRanges();
     // parentKey is the current parent task key (tempKey for TEMP zone)
-    const containerSubs = subtasks.filter(s => s.parent_key === parentKey);
+    // fromIdx must match DOM order (which render() sorts by statusPriority)
+    const containerSubs = renderedSubtasksOf(parentKey);
     const fromIdx = containerSubs.findIndex(s => s.key === key);
     if (fromIdx === -1) return;
     const cardEl = document.querySelector(`.task-card[data-key="${CSS.escape(key)}"]`);
@@ -660,9 +668,9 @@
     const st = subtasks.find(s => s.key === key);
     if (!st) return;
     if (toParentKey === parentKey) {
-      // Same container: reorder
+      // Same container: reorder (using sorted/rendered order)
       if (toIdx === fromIdx) return;
-      const ct = subtasks.filter(s => s.parent_key === parentKey);
+      const ct = renderedSubtasksOf(parentKey);
       const [moved] = ct.splice(fromIdx, 1);
       ct.splice(toIdx, 0, moved);
       const gi = []; subtasks.forEach((s, i) => { if (s.parent_key === parentKey) gi.push(i); });

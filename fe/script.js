@@ -187,9 +187,9 @@ async function reprintJob(id) {
   try {
     const res = await authFetch(`/jobs/${id}/reprint`, {
       method: 'POST',
-      body: JSON.stringify({ print_enabled: isPrintEnabled() }),
+      body: JSON.stringify({ print_enabled: true }),
     });
-    if (res.ok) showToast(isPrintEnabled() ? '✓ Printed!' : '✓ (프린트 꺼짐)', 'success');
+    if (res.ok) showToast('✓ Printed!', 'success');
     else showToast('오류가 발생했습니다.', 'error');
   } catch {
     showToast('Connection error.', 'error');

@@ -140,7 +140,7 @@
       </div>
       <div class="col-body print-col">
         <input id="title" type="text" placeholder="할일 #1" maxlength="40"
-               onkeydown="if(event.key==='Enter') sendPrint()">
+               onkeydown="if(event.key==='Enter' && !event.isComposing) sendPrint()">
         <button id="print-btn" onclick="sendPrint()">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <polyline points="6 9 12 15 18 9"/>
