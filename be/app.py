@@ -214,6 +214,57 @@ def reorder_jobs(body: ReorderRequest, user=Depends(require_auth)):
     return {"ok": True}
 
 
+class AssignEpicRequest(BaseModel):
+    epic_key: str | None = None
+
+
+@app.get("/jira/epics-tasks")
+def get_epics_tasks(user=Depends(require_auth)):
+    return jira_client.get_epics_and_tasks()
+
+
+@app.patch("/jira/tasks/{task_key}/epic")
+def assign_task_epic(task_key: str, body: AssignEpicRequest, user=Depends(require_auth)):
+    ok = jira_client.assign_task_to_epic(task_key, body.epic_key)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to update Jira")
+    return {"ok": True}
+
+
+@app.get("/jira/tasks-subtasks")
+def get_tasks_subtasks(user=Depends(require_auth)):
+    return jira_client.get_tasks_and_subtasks()
+
+
+@app.get("/jira/issues/{issue_key}/transitions")
+def get_issue_transitions(issue_key: str, user=Depends(require_auth)):
+    return jira_client.get_transitions(issue_key)
+
+
+class TransitionRequest(BaseModel):
+    transition_id: str
+
+
+@app.post("/jira/issues/{issue_key}/transitions")
+def apply_issue_transition(issue_key: str, body: TransitionRequest, user=Depends(require_auth)):
+    ok = jira_client.apply_transition(issue_key, body.transition_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to apply transition")
+    return {"ok": True}
+
+
+class AssignParentRequest(BaseModel):
+    task_key: str
+
+
+@app.patch("/jira/subtasks/{subtask_key}/parent")
+def assign_subtask_parent(subtask_key: str, body: AssignParentRequest, user=Depends(require_auth)):
+    ok = jira_client.assign_subtask_to_task(subtask_key, body.task_key)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to update Jira")
+    return {"ok": True}
+
+
 class PrintRequest(BaseModel):
     title: str
 
@@ -241,7 +292,7 @@ def print_receipt(body: PrintRequest, user=Depends(require_auth)):
 
         with get_db() as conn:
             with conn.cursor() as cur:
-                jira_key = jira_client.create_subtask(title)
+                jira_key = jira_client.create_issue(title) if user["email"] == "urustin@gmail.com" else None
                 cur.execute(
                     "INSERT INTO print_jobs (title, printed_by, status, sort_order, jira_key)"
                     " VALUES (%s, %s, 'progress',"
