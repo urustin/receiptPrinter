@@ -89,16 +89,18 @@ body {
   gap: 12px;
 }
 
-.time-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: #f2f2f7;
+.hub-btn {
+  background: transparent;
+  border: 1px solid #d2d2d7;
   border-radius: 8px;
-  padding: 6px 10px;
+  color: #0071e3;
   font-size: .8125rem;
-  color: #6e6e73;
+  padding: 6px 12px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background .15s;
 }
+.hub-btn:hover { background: #f2f2f7; }
 
 .signout-btn {
   background: transparent;
@@ -243,6 +245,15 @@ body {
   animation: fadein .2s ease;
 }
 
+#progress-list .job-item {
+  background: hsl(145, 40%, 93%);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+#progress-list .job-item:active { cursor: grabbing; }
+#progress-list .job-item * { cursor: inherit; }
+
 .job-title {
   flex: 1;
   font-size: .9rem;
@@ -264,7 +275,7 @@ body {
   flex-shrink: 0;
 }
 
-.btn-done, .btn-delete {
+.btn-reprint, .btn-done, .btn-delete {
   width: 28px;
   height: 28px;
   border-radius: 7px;
@@ -276,6 +287,12 @@ body {
   padding: 0;
   transition: background .15s, transform .1s;
 }
+
+.btn-reprint {
+  background: #e8f0fe;
+  color: #5b7a9d;
+}
+.btn-reprint:hover { background: #d5e8ff; }
 
 .btn-done {
   background: #d1f4e0;

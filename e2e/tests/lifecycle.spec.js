@@ -1,36 +1,18 @@
 /**
- * Full lifecycle test:
- *   1. Insert 4 items directly into DB (bypass printer hardware)
- *   2. Mark 2 as done via API  → verify completed_at is set, status is 'done'
- *   3. Delete 2 via API        → verify they are gone
- *   4. Verify board UI reflects final state
- *   5. Clean up remaining items
+ * 전체 라이프사이클 테스트:
+ *   1. DB에 직접 4개 삽입 (프린터 하드웨어 우회)
+ *   2. 2개를 API로 완료 처리  → completed_at 설정 및 status='done' 확인
+ *   3. 2개를 API로 삭제        → 삭제 확인
+ *   4. /print 보드 UI가 최종 상태를 반영하는지 확인
+ *   5. 남은 항목 정리
  */
 const { test, expect } = require('@playwright/test');
 const { execSync } = require('child_process');
-const crypto = require('crypto');
-const { loginAs, TEST_EMAIL } = require('../helpers/auth');
+const { loginAs, apiRequest, TEST_EMAIL } = require('../helpers/auth');
 
-const SECRET_KEY = '0684d5a809d932da47140ee34102c260e95c79a98c371425c5abd77e7e7d338b';
 const TAG = `lifecycle-${Date.now()}`;
 
-// ── JWT / API helpers ─────────────────────────────
-function makeJwt() {
-  const h = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const b = b64url(JSON.stringify({ email: TEST_EMAIL, name: 'Test User' }));
-  const s = crypto.createHmac('sha256', SECRET_KEY).update(`${h}.${b}`).digest('base64url');
-  return `${h}.${b}.${s}`;
-}
-function b64url(str) { return Buffer.from(str).toString('base64url'); }
-
-async function api(ctx, method, path) {
-  return ctx.fetch(`http://localhost:60021${path}`, {
-    method,
-    headers: { Authorization: `Bearer ${makeJwt()}` },
-  });
-}
-
-// ── DB helpers ────────────────────────────────────
+// ── DB 헬퍼 ──────────────────────────────────────
 function dbExec(sql) {
   return execSync(
     `docker exec printer-db-1 psql -U printer -d printer -t -A -c "${sql}"`
@@ -48,30 +30,29 @@ function cleanupTag() {
   dbExec(`DELETE FROM print_jobs WHERE title LIKE '${TAG}%' AND printed_by='${TEST_EMAIL}';`);
 }
 
-// ── Test ──────────────────────────────────────────
-test('lifecycle: insert 4 → done 2 → delete 2 → verify', async ({ page, request: ctx }) => {
-  // 0. ensure clean state
+// ── 테스트 ────────────────────────────────────────
+test('라이프사이클: 4개 삽입 → 2개 완료 → 2개 삭제 → 검증', async ({ page, request: ctx }) => {
   cleanupTag();
 
-  // 1. Insert 4 items directly into DB
+  // 1. DB에 직접 4개 삽입
   const titles = [`${TAG}-A`, `${TAG}-B`, `${TAG}-C`, `${TAG}-D`];
   const ids = titles.map(insertJob);
   const [idA, idB, idC, idD] = ids;
 
   try {
-    // 2. Verify all 4 appear in progress via API
-    const hist1 = await (await api(ctx, 'GET', '/history')).json();
+    // 2. 4개 모두 진행중에 있는지 확인
+    const hist1 = await (await apiRequest(ctx, 'GET', '/history')).json();
     const progressIds = hist1.progress.map(j => j.id);
     for (const id of ids) {
       expect(progressIds).toContain(id);
     }
 
-    // 3. Mark A and B as done
-    expect((await api(ctx, 'PATCH', `/jobs/${idA}/done`)).ok()).toBe(true);
-    expect((await api(ctx, 'PATCH', `/jobs/${idB}/done`)).ok()).toBe(true);
+    // 3. A, B 완료 처리
+    expect((await apiRequest(ctx, 'PATCH', `/jobs/${idA}/done`)).ok()).toBe(true);
+    expect((await apiRequest(ctx, 'PATCH', `/jobs/${idB}/done`)).ok()).toBe(true);
 
-    // 4. Verify A and B are in done with completed_at set
-    const hist2 = await (await api(ctx, 'GET', '/history')).json();
+    // 4. A, B가 완료 목록에 있고 completed_at이 설정됐는지 확인
+    const hist2 = await (await apiRequest(ctx, 'GET', '/history')).json();
     const doneIds = hist2.done.map(j => j.id);
     expect(doneIds).toContain(idA);
     expect(doneIds).toContain(idB);
@@ -83,24 +64,24 @@ test('lifecycle: insert 4 → done 2 → delete 2 → verify', async ({ page, re
     expect(jobA.status).toBe('done');
     expect(jobB.status).toBe('done');
 
-    // 5. C and D still in progress
+    // 5. C, D는 여전히 진행중
     const stillProgress = hist2.progress.map(j => j.id);
     expect(stillProgress).toContain(idC);
     expect(stillProgress).toContain(idD);
 
-    // 6. Delete C and D
-    expect((await api(ctx, 'DELETE', `/jobs/${idC}`)).ok()).toBe(true);
-    expect((await api(ctx, 'DELETE', `/jobs/${idD}`)).ok()).toBe(true);
+    // 6. C, D 삭제
+    expect((await apiRequest(ctx, 'DELETE', `/jobs/${idC}`)).ok()).toBe(true);
+    expect((await apiRequest(ctx, 'DELETE', `/jobs/${idD}`)).ok()).toBe(true);
 
-    // 7. Verify C and D are gone
-    const hist3 = await (await api(ctx, 'GET', '/history')).json();
+    // 7. C, D가 사라졌는지 확인
+    const hist3 = await (await apiRequest(ctx, 'GET', '/history')).json();
     const allIds = [...hist3.progress, ...hist3.done].map(j => j.id);
     expect(allIds).not.toContain(idC);
     expect(allIds).not.toContain(idD);
 
-    // 8. Verify UI board reflects final state (2 done items from this test)
+    // 8. /print 보드 UI가 최종 상태를 반영하는지 확인
     await loginAs(page);
-    await page.goto('/');
+    await page.goto('/print');
     await page.waitForTimeout(600);
 
     const doneList = page.locator('#done-list .job-item');
@@ -114,7 +95,7 @@ test('lifecycle: insert 4 → done 2 → delete 2 → verify', async ({ page, re
     expect(tagProgressTitles.length).toBe(0);
 
   } finally {
-    // 9. Clean up — delete A and B that were marked done
+    // 9. A, B(완료 처리된 것) 정리
     cleanupTag();
   }
 });

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>설정 — Printer</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f7;
+      color: #1d1d1f;
+      min-height: 100vh;
+    }
+
+    header {
+      position: sticky; top: 0;
+      background: rgba(255,255,255,0.88);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid #d2d2d7;
+      padding: 0 24px; height: 52px;
+      display: flex; align-items: center; justify-content: space-between;
+      z-index: 10;
+    }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .header-left a { font-size: 13px; color: #0071e3; text-decoration: none; font-weight: 500; }
+    .header-left a:hover { text-decoration: underline; }
+    header h1 { font-size: 16px; font-weight: 600; }
+    .sign-out-btn {
+      padding: 5px 14px; border: 1px solid #d2d2d7; border-radius: 8px;
+      background: #fff; font-size: 13px; cursor: pointer; color: #1d1d1f;
+      transition: background 0.15s;
+    }
+    .sign-out-btn:hover { background: #f5f5f7; }
+
+    main { padding: 28px 24px; max-width: 600px; margin: 0 auto; }
+
+    .section {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .section-title {
+      font-size: 15px; font-weight: 700;
+      margin-bottom: 20px; color: #1d1d1f;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .field { margin-bottom: 16px; }
+    .field:last-child { margin-bottom: 0; }
+
+    label {
+      display: block;
+      font-size: 12px; font-weight: 600;
+      color: #6e6e73; text-transform: uppercase; letter-spacing: 0.4px;
+      margin-bottom: 6px;
+    }
+
+    .field-hint {
+      font-size: 11px; color: #aeaeb2;
+      margin-top: 4px; text-transform: none; letter-spacing: 0; font-weight: 400;
+    }
+
+    input[type="text"], input[type="email"], input[type="password"], input[type="url"] {
+      display: block; width: 100%;
+      padding: 10px 13px;
+      border: 1.5px solid #d2d2d7; border-radius: 10px;
+      font-size: 14px; color: #1d1d1f;
+      background: #fafafa; outline: none;
+      transition: border-color 0.15s, background 0.15s;
+      font-family: inherit;
+    }
+    input:focus { border-color: #0071e3; background: #fff; }
+
+    .radio-group {
+      display: flex; gap: 10px;
+    }
+    .radio-option {
+      flex: 1;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      padding: 9px 12px;
+      border: 1.5px solid #d2d2d7; border-radius: 10px;
+      cursor: pointer; font-size: 13px; font-weight: 500;
+      transition: border-color 0.15s, background 0.15s;
+      user-select: none;
+    }
+    .radio-option input[type="radio"] { display: none; }
+    .radio-option.selected {
+      border-color: #0071e3;
+      background: #e8f0fe;
+      color: #0071e3;
+    }
+
+    .conditional-field {
+      display: none;
+      margin-top: 16px;
+    }
+    .conditional-field.visible { display: block; }
+
+    .save-btn {
+      width: 100%; padding: 12px;
+      background: #0071e3; color: #fff;
+      border: none; border-radius: 10px;
+      font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: background 0.15s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .save-btn:hover { background: #0077ed; }
+    .save-btn:disabled { background: #a1a1a6; cursor: not-allowed; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+
+    .status-banner {
+      display: none;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    .status-banner.success { display: block; background: #d1f4e0; color: #1a7f4b; }
+    .status-banner.error   { display: block; background: #fee2e2; color: #b91c1c; }
+
+    .configured-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 12px; font-weight: 500;
+      padding: 2px 8px; border-radius: 6px;
+      background: #d1f4e0; color: #1a7f4b;
+    }
+    .not-configured-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 12px; font-weight: 500;
+      padding: 2px 8px; border-radius: 6px;
+      background: #fee2e2; color: #b91c1c;
+    }
+  </style>
+</head>
+<body>
+
+
+<div id="app" style="display:none">
+  <header>
+    <div class="header-left">
+      <a href="/">← 메인</a>
+      <h1>설정</h1>
+    </div>
+    <button class="sign-out-btn" onclick="logout()">로그아웃</button>
+  </header>
+
+  <main>
+    <div class="section">
+      <div class="section-title">
+        🔗 Jira 연동
+        <span id="config-badge"></span>
+      </div>
+
+      <div id="status-banner" class="status-banner"></div>
+
+      <form id="jira-form" onsubmit="saveSettings(event)">
+        <div class="field">
+          <label>Jira Base URL</label>
+          <input type="url" id="jira_base_url" placeholder="https://your-org.atlassian.net" required>
+        </div>
+
+        <div class="field">
+          <label>Jira 계정 이메일</label>
+          <input type="email" id="jira_email" placeholder="you@example.com" required>
+        </div>
+
+        <div class="field">
+          <label>Jira API Token</label>
+          <input type="password" id="jira_api_token" placeholder="비어있으면 기존 토큰 유지">
+          <div class="field-hint">Atlassian 계정 → 보안 → API 토큰에서 발급. 빈칸으로 두면 저장된 토큰 유지.</div>
+        </div>
+
+        <div class="field">
+          <label>프로젝트 키</label>
+          <input type="text" id="jira_project_key" placeholder="PROJ">
+          <div class="field-hint">Jira 프로젝트 키 (예: SSW, PROJ)</div>
+        </div>
+
+        <div class="field">
+          <label>Board ID</label>
+          <input type="text" id="jira_board_id" placeholder="1">
+          <div class="field-hint">스프린트 보드 ID (Jira 보드 URL에서 확인)</div>
+        </div>
+
+        <div class="field">
+          <label>티켓 생성 방식</label>
+          <div class="radio-group">
+            <label class="radio-option" id="mode-subtask" onclick="setMode('SUBTASK')">
+              <input type="radio" name="ticket_mode" value="SUBTASK">
+              서브태스크
+            </label>
+            <label class="radio-option" id="mode-task" onclick="setMode('TASK')">
+              <input type="radio" name="ticket_mode" value="TASK">
+              태스크
+            </label>
+          </div>
+        </div>
+
+        <div class="conditional-field" id="field-parent-key">
+          <div class="field">
+            <label>Parent Key (서브태스크 모드)</label>
+            <input type="text" id="jira_parent_key" placeholder="PROJ-123">
+            <div class="field-hint">프린트 시 생성되는 서브태스크의 부모 태스크 키</div>
+          </div>
+        </div>
+
+        <div style="margin-top:24px">
+          <button type="submit" class="save-btn" id="save-btn">저장</button>
+        </div>
+      </form>
+    </div>
+  </main>
+</div>
+
+<script src="/auth.js"></script>
+<script>
+  let currentMode = 'SUBTASK';
+
+  function initPage() {
+    if (!initSubPageAuth('/settings')) return;
+    loadSettings();
+  }
+
+  async function loadSettings() {
+    try {
+      const res = await authFetch('/settings/jira');
+      const data = await res.json();
+      const badge = document.getElementById('config-badge');
+      if (data.configured) {
+        badge.innerHTML = '<span class="configured-badge">✓ 연동됨</span>';
+        document.getElementById('jira_base_url').value    = data.jira_base_url || '';
+        document.getElementById('jira_email').value       = data.jira_email || '';
+        document.getElementById('jira_api_token').value   = data.jira_api_token || '';
+        document.getElementById('jira_project_key').value = data.jira_project_key || '';
+        document.getElementById('jira_parent_key').value  = data.jira_parent_key || '';
+        document.getElementById('jira_board_id').value    = data.jira_board_id || '';
+        setMode(data.ticket_mode || 'SUBTASK');
+      } else {
+        badge.innerHTML = '<span class="not-configured-badge">미설정</span>';
+        setMode('SUBTASK');
+      }
+    } catch (e) {
+      showBanner('설정을 불러오지 못했습니다.', 'error');
+    }
+  }
+
+  function setMode(mode) {
+    currentMode = mode;
+    document.getElementById('mode-subtask').classList.toggle('selected', mode === 'SUBTASK');
+    document.getElementById('mode-task').classList.toggle('selected', mode === 'TASK');
+    document.getElementById('field-parent-key').classList.toggle('visible', mode === 'SUBTASK');
+  }
+
+  function setLoading(on, msg = '') {
+    const btn = document.getElementById('save-btn');
+    btn.disabled = on;
+    btn.innerHTML = on
+      ? `<span class="spinner"></span>${msg}`
+      : '저장';
+  }
+
+  async function saveSettings(e) {
+    e.preventDefault();
+    hideBanner();
+
+    const parentKey = document.getElementById('jira_parent_key').value.trim();
+    const body = {
+      jira_base_url:    document.getElementById('jira_base_url').value.trim(),
+      jira_email:       document.getElementById('jira_email').value.trim(),
+      jira_api_token:   document.getElementById('jira_api_token').value,
+      jira_project_key: document.getElementById('jira_project_key').value.trim(),
+      jira_parent_key:  parentKey,
+      jira_board_id:    document.getElementById('jira_board_id').value.trim(),
+      jira_temp_key:    parentKey,  // temp_key = parent_key
+      ticket_mode:      currentMode,
+    };
+
+    // Step 1: test connection
+    setLoading(true, 'Jira 연결 확인 중...');
+    try {
+      const testRes = await authFetch('/settings/jira/test', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      const testData = await testRes.json();
+      if (!testRes.ok) {
+        showBanner('연결 실패: ' + (testData.detail || testRes.status), 'error');
+        return;
+      }
+
+      // Step 2: save
+      setLoading(true, '저장 중...');
+      const saveRes = await authFetch('/settings/jira', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+      if (saveRes.ok) {
+        showBanner(`✓ 저장 완료! 프로젝트: ${testData.project_name}`, 'success');
+        loadSettings();
+      } else {
+        const saveData = await saveRes.json();
+        showBanner('저장 실패: ' + (saveData.detail || saveRes.status), 'error');
+      }
+    } catch (err) {
+      showBanner('연결 오류가 발생했습니다.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function showBanner(msg, type) {
+    const el = document.getElementById('status-banner');
+    el.textContent = msg;
+    el.className = 'status-banner ' + type;
+  }
+  function hideBanner() {
+    document.getElementById('status-banner').className = 'status-banner';
+  }
+
+  initPage();
+</script>
+</body>
+</html>

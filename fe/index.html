@@ -1,91 +1,189 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Printer</title>
-<link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Printer</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f7;
+      color: #1d1d1f;
+      min-height: 100vh;
+    }
+
+    /* ── 로그인 모달 ──────────────────────────────────── */
+    #login-modal {
+      position: fixed; inset: 0;
+      background: #f5f5f7;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+
+    .login-card {
+      background: #fff;
+      border-radius: 20px;
+      padding: 52px 44px;
+      text-align: center;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.08);
+      max-width: 360px;
+      width: 90%;
+    }
+
+    .login-icon  { font-size: 44px; margin-bottom: 14px; }
+    .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .login-sub   { font-size: 14px; color: #6e6e73; margin-bottom: 32px; }
+
+    .google-btn {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%; padding: 13px 20px;
+      border: 1.5px solid #d2d2d7; border-radius: 12px;
+      background: #fff; font-size: 15px; font-weight: 500;
+      cursor: pointer; color: #1d1d1f; text-decoration: none;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    .google-btn:hover { background: #f5f5f7; box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
+
+    /* ── 앱 ───────────────────────────────────────────── */
+    #app {
+      display: flex;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      padding: 32px 20px;
+    }
+
+    .hub-header {
+      display: flex; align-items: center; justify-content: space-between;
+      width: 100%; max-width: 420px;
+      margin-bottom: 20px;
+    }
+
+    .hub {
+      width: 100%;
+      max-width: 420px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .hub-icon  { font-size: 48px; margin-bottom: 4px; }
+    .hub-title { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+    .hub-sub   { font-size: 14px; color: #6e6e73; margin-bottom: 12px; }
+
+    .link-card {
+      display: flex; align-items: center; gap: 14px;
+      width: 100%; padding: 16px 20px;
+      background: #fff; border: 1px solid #e5e5ea; border-radius: 14px;
+      text-decoration: none; color: #1d1d1f;
+      box-shadow: 0 1px 4px rgba(0,0,0,.05);
+      transition: background .14s, box-shadow .14s, transform .1s;
+    }
+    .link-card:hover { background: #fafafa; box-shadow: 0 4px 16px rgba(0,0,0,.09); transform: translateY(-1px); }
+    .link-card:active { transform: scale(.98); }
+
+    .link-emoji { font-size: 22px; flex-shrink: 0; width: 36px; text-align: center; }
+    .link-text  { flex: 1; }
+    .link-name  { font-size: 15px; font-weight: 600; }
+    .link-desc  { font-size: 12px; color: #6e6e73; margin-top: 2px; }
+    .link-arrow { color: #c7c7cc; font-size: 16px; }
+
+    .signout-btn {
+      padding: 5px 14px;
+      border: 1px solid #d2d2d7; border-radius: 8px;
+      background: #fff; font-size: 13px;
+      cursor: pointer; color: #1d1d1f;
+      transition: background 0.15s;
+    }
+    .signout-btn:hover { background: #f5f5f7; }
+  </style>
 </head>
 <body>
 
-<div id="login-screen" style="display:none;">
+<!-- 로그인 모달 -->
+<div id="login-modal">
   <div class="login-card">
     <div class="login-icon">🖨️</div>
-    <h1 class="login-title">Printer</h1>
-    <p class="login-subtitle">Sign in to access the printer.</p>
+    <div class="login-title">Printer</div>
+    <div class="login-sub">print.ericfromkorea.com</div>
     <a href="/auth/login" class="google-btn">
-      <svg class="google-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
-        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+      <svg width="18" height="18" viewBox="0 0 48 48">
+        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
       </svg>
-      Sign in with Google
+      Google로 로그인
     </a>
   </div>
 </div>
 
-<div id="app" style="display:none;">
-  <header class="app-header">
-    <span class="app-logo">🖨️ Printer</span>
-    <div class="header-right">
-      <div class="time-badge">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-        </svg>
-        <span id="clock">--:--:--</span>
-      </div>
-      <button class="signout-btn" onclick="logout()">Sign out</button>
-    </div>
-  </header>
+<!-- 앱 -->
+<div id="app">
+  <div class="hub-header">
+    <span style="font-size:13px;color:#6e6e73;">print.ericfromkorea.com</span>
+    <button class="signout-btn" onclick="logout()">로그아웃</button>
+  </div>
 
-  <main class="board">
+  <div class="hub">
+    <div class="hub-icon">🖨️</div>
+    <div class="hub-title">Printer</div>
 
-    <!-- Print column -->
-    <div class="column">
-      <div class="col-header">
-        <span class="col-title">Print</span>
+    <a href="/print" class="link-card">
+      <span class="link-emoji">🖨️</span>
+      <div class="link-text">
+        <div class="link-name">Printer</div>
+        <div class="link-desc">할 일 프린트 & 진행 현황</div>
       </div>
-      <div class="col-body print-col">
-        <input id="title" type="text" placeholder="할일 #1" maxlength="40"
-               onkeydown="if(event.key==='Enter') sendPrint()">
-        <button id="print-btn" onclick="sendPrint()">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <polyline points="6 9 12 15 18 9"/>
-          </svg>
-          Print
-        </button>
-        <div id="toast" class="toast"></div>
-      </div>
-    </div>
+      <span class="link-arrow">›</span>
+    </a>
 
-    <!-- Progress column -->
-    <div class="column">
-      <div class="col-header">
-        <span class="col-title">In Progress</span>
-        <span class="col-count" id="progress-count">0</span>
+    <a href="/manage_task" class="link-card">
+      <span class="link-emoji">📋</span>
+      <div class="link-text">
+        <div class="link-name">태스크 관리</div>
+        <div class="link-desc">에픽 · 태스크 · 서브태스크 추가/수정/삭제</div>
       </div>
-      <div class="col-body">
-        <ul class="job-list" id="progress-list"></ul>
-      </div>
-    </div>
+      <span class="link-arrow">›</span>
+    </a>
 
-    <!-- Done column -->
-    <div class="column">
-      <div class="col-header">
-        <span class="col-title">Done</span>
-        <span class="col-count done-count" id="done-count">0</span>
+    <a href="/arrange_task" class="link-card">
+      <span class="link-emoji">🗂️</span>
+      <div class="link-text">
+        <div class="link-name">에픽 → 태스크 배열</div>
+        <div class="link-desc">드래그로 태스크를 에픽에 할당</div>
       </div>
-      <div class="col-body">
-        <ul class="job-list" id="done-list"></ul>
-      </div>
-    </div>
+      <span class="link-arrow">›</span>
+    </a>
 
-  </main>
+    <a href="/arrange_subtask" class="link-card">
+      <span class="link-emoji">🔀</span>
+      <div class="link-text">
+        <div class="link-name">태스크 → 서브태스크 배열</div>
+        <div class="link-desc">드래그로 서브태스크를 태스크에 할당</div>
+      </div>
+      <span class="link-arrow">›</span>
+    </a>
+
+    <a href="/settings" class="link-card" style="margin-top:8px;border-color:#e5e5ea;background:#fafafa">
+      <span class="link-emoji">⚙️</span>
+      <div class="link-text">
+        <div class="link-name" style="color:#3a3a3c">설정</div>
+        <div class="link-desc">Jira 연동 · 계정 관리</div>
+      </div>
+      <span class="link-arrow">›</span>
+    </a>
+  </div>
 </div>
 
-<script src="auth.js"></script>
-<script src="script.js"></script>
+<script src="/auth.js"></script>
+<script>initAuth();</script>
 </body>
 </html>

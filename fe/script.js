@@ -1,10 +1,88 @@
-initAuth();
+initSubPageAuth('/print');
 
-function tick() {
-  document.getElementById('clock').textContent =
-    new Date().toLocaleString('ko-KR', { hour12: false });
+// ── Print toggle (localStorage) ───────────────────
+function isPrintEnabled() {
+  return localStorage.getItem('printer_print_enabled') !== 'false';
 }
-tick(); setInterval(tick, 1000);
+
+function onPrintToggle(checkbox) {
+  localStorage.setItem('printer_print_enabled', checkbox.checked ? 'true' : 'false');
+}
+
+// ── Settings modal ────────────────────────────────
+let jiraConfigured = false;
+
+function openSettings() {
+  document.getElementById('print-toggle').checked = isPrintEnabled();
+  document.getElementById('settings-modal').classList.add('open');
+  loadJiraStatus();
+}
+
+function closeSettings() {
+  document.getElementById('settings-modal').classList.remove('open');
+}
+
+function onBackdropClick(e) {
+  if (e.target === document.getElementById('settings-modal')) closeSettings();
+}
+
+async function loadJiraStatus() {
+  const toggle = document.getElementById('jira-toggle');
+  const sub    = document.getElementById('jira-status-sub');
+  const syncBtn = document.getElementById('sync-btn');
+  sub.textContent = '확인 중…';
+  toggle.disabled = true;
+  try {
+    const res  = await authFetch('/settings/jira');
+    const data = await res.json();
+    jiraConfigured = data.configured;
+    toggle.checked  = jiraConfigured;
+    toggle.disabled = false;
+    sub.textContent = jiraConfigured ? '연동됨' : '미설정';
+    syncBtn.disabled = !jiraConfigured;
+  } catch {
+    sub.textContent = '확인 실패';
+  }
+}
+
+function onJiraToggle(checkbox) {
+  if (!checkbox.checked) {
+    // turning off → just go to settings page
+    checkbox.checked = true; // revert visual until navigated away
+    closeSettings();
+    location.href = '/settings';
+  } else {
+    closeSettings();
+    location.href = '/settings';
+  }
+}
+
+// ── Sync all jobs to Jira ─────────────────────────
+async function syncJira() {
+  const btn = document.getElementById('sync-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> 동기화 중…';
+  try {
+    const res  = await authFetch('/jobs/sync-jira', { method: 'POST' });
+    const data = await res.json();
+    closeSettings();
+    if (res.ok) {
+      const parts = [];
+      if (data.inserted) parts.push(`${data.inserted}개 추가`);
+      if (data.updated)  parts.push(`${data.updated}개 업데이트`);
+      const msg = parts.length ? `✓ ${parts.join(', ')} 완료` : '✓ 이미 최신 상태입니다';
+      showToast(msg, 'success');
+      loadBoard();
+    } else {
+      showToast('동기화 실패: ' + (data.detail || res.status), 'error');
+    }
+  } catch {
+    showToast('연결 오류가 발생했습니다.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Jira 동기화';
+  }
+}
 
 // ── Load board ────────────────────────────────────
 async function loadBoard() {
@@ -36,9 +114,14 @@ function renderList(listId, countId, items, isDone) {
         </svg>
       </span>` : ''}
       <span class="job-title">${escHtml(r.title)}</span>
-      <span class="job-time">${isDone ? (r.completed_at ?? r.printed_at) : r.printed_at}</span>
-      ${!isDone ? `
+      <span class="job-time">${formatDate(isDone ? (r.completed_at ?? r.printed_at) : r.printed_at)}</span>
       <div class="job-actions">
+        ${!isDone ? `<button class="btn-reprint" title="Print" onclick="reprintJob(${r.id})">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+          </svg>
+        </button>` : ''}
+        ${!isDone ? `
         <button class="btn-done" title="Mark done" onclick="markDone(${r.id})">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
             <polyline points="20 6 9 17 4 12"/>
@@ -48,8 +131,8 @@ function renderList(listId, countId, items, isDone) {
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
           </svg>
-        </button>
-      </div>` : ''}
+        </button>` : ''}
+      </div>
     </li>`).join('');
 
   if (!isDone) initDrag(list);
@@ -57,6 +140,14 @@ function renderList(listId, countId, items, isDone) {
 
 function escHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function formatDate(ts) {
+  const d = new Date(ts);
+  const yy = String(d.getFullYear()).slice(2);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yy}/${mm}/${dd}`;
 }
 
 // ── Print ─────────────────────────────────────────
@@ -71,13 +162,13 @@ async function sendPrint() {
   btn.textContent = 'Printing…';
 
   try {
-    const res = await authFetch('/print', {
+    const res = await authFetch('/api/print', {
       method: 'POST',
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title, print_enabled: isPrintEnabled() }),
     });
     const data = await res.json();
     if (res.ok) {
-      showToast('✓ Printed!', 'success');
+      showToast(isPrintEnabled() ? '✓ Printed!' : '✓ 추가됨', 'success');
       input.value = '';
       loadBoard();
     } else {
@@ -88,6 +179,20 @@ async function sendPrint() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg> Print`;
+  }
+}
+
+// ── Reprint ───────────────────────────────────────
+async function reprintJob(id) {
+  try {
+    const res = await authFetch(`/jobs/${id}/reprint`, {
+      method: 'POST',
+      body: JSON.stringify({ print_enabled: true }),
+    });
+    if (res.ok) showToast('✓ Printed!', 'success');
+    else showToast('오류가 발생했습니다.', 'error');
+  } catch {
+    showToast('Connection error.', 'error');
   }
 }
 
@@ -113,13 +218,15 @@ function initDrag(list) {
   let ghost    = null;   // floating clone
   let offsetX  = 0, offsetY = 0;
 
-  list.querySelectorAll('.drag-handle').forEach(handle => {
-    handle.addEventListener('pointerdown', onDown);
+  list.querySelectorAll('.job-item').forEach(item => {
+    item.addEventListener('pointerdown', onDown);
   });
 
   function onDown(e) {
+    if (e.target.closest('button')) return;
     e.preventDefault();
-    const li = e.currentTarget.closest('.job-item');
+    window.getSelection()?.removeAllRanges();
+    const li = e.currentTarget;
     dragging = li;
 
     const rect = li.getBoundingClientRect();
