@@ -2,7 +2,7 @@ import os
 import logging
 import httpx
 from dataclasses import dataclass
-ㅁㅁ
+
 logger = logging.getLogger(__name__)
 
 SUBTASK_TYPE_ID = "10002"
