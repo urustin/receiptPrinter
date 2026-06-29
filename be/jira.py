@@ -148,18 +148,20 @@ def _transition_to_todo(issue_key: str, cfg: JiraConfig) -> None:
 def create_issue(title: str, cfg: "JiraConfig | None" = None) -> "str | None":
     c = _get_cfg(cfg)
     try:
+        types = _discover_types(c.project_key, c)
         if c.ticket_mode == "TASK":
             fields = {
                 "project":   {"key": c.project_key},
                 "summary":   title,
-                "issuetype": {"name": "Task"},
+                "issuetype": {"name": types["task"][0]},
             }
         else:
+            issue_type: dict = {"id": types["subtask_id"]} if types.get("subtask_id") else {"name": types["subtask"][0]}
             fields = {
                 "project":   {"key": c.project_key},
                 "parent":    {"key": c.parent_key},
                 "summary":   title,
-                "issuetype": {"id": SUBTASK_TYPE_ID},
+                "issuetype": issue_type,
             }
 
         res = httpx.post(
@@ -176,7 +178,8 @@ def create_issue(title: str, cfg: "JiraConfig | None" = None) -> "str | None":
             _transition_to_todo(issue_key, c)
 
         return issue_key
-    except Exception:
+    except Exception as e:
+        logger.error("create_issue error: %s", e)
         return None
 
 
@@ -198,23 +201,27 @@ def mark_done(issue_key: str, cfg: "JiraConfig | None" = None) -> bool:
 
 
 def _search(jql: str, fields: str, cfg: JiraConfig, max_results: int = 100) -> list:
+    # The /search/jql endpoint paginates via nextPageToken (not startAt/total).
     issues = []
-    start = 0
+    next_token = None
     while True:
         try:
+            params = {"jql": jql, "fields": fields, "maxResults": max_results}
+            if next_token:
+                params["nextPageToken"] = next_token
             res = httpx.get(
                 f"{cfg.base_url}/rest/api/3/search/jql",
                 auth=cfg.auth,
-                params={"jql": jql, "fields": fields, "maxResults": max_results, "startAt": start},
+                params=params,
                 timeout=15,
             )
             res.raise_for_status()
             data = res.json()
             batch = data.get("issues", [])
             issues.extend(batch)
-            if start + len(batch) >= data.get("total", 0) or not batch:
+            next_token = data.get("nextPageToken")
+            if not next_token or not batch:
                 break
-            start += len(batch)
         except Exception as e:
             logger.error("_search error jql=%s: %s", jql, e)
             break

@@ -18,7 +18,9 @@ services:
     env_file:
       - ./be/.env
     devices:
-      - /dev/usb/lp0:/dev/usb/lp0
+      # Host path is a stable udev symlink (99-pos-printer.rules) that always
+      # tracks the POS printer regardless of the dynamic lpN number.
+      - /dev/usb/lp-pos:/dev/usb/lp0
     group_add:
       - "7"   # lp group GID on most Linux systems
     environment:
