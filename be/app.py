@@ -77,6 +77,10 @@ def init_db():
                 ADD COLUMN IF NOT EXISTS jira_key TEXT
             """)
             cur.execute("""
+                ALTER TABLE print_jobs
+                ADD COLUMN IF NOT EXISTS jira_type TEXT
+            """)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS jira_order (
                     issue_key TEXT PRIMARY KEY,
                     sort_order INTEGER NOT NULL DEFAULT 0
@@ -312,20 +316,97 @@ def history(user=Depends(require_auth)):
     with get_db() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
-                "SELECT id, title, status,"
+                "SELECT id, title, status, jira_type,"
                 " to_char(printed_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD HH24:MI') AS printed_at,"
                 " to_char(completed_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD HH24:MI') AS completed_at"
                 " FROM print_jobs WHERE printed_by = %s"
-                " ORDER BY CASE WHEN status='progress' THEN sort_order ELSE NULL END ASC NULLS LAST,"
+                " ORDER BY CASE WHEN status IN ('backlog', 'progress') THEN sort_order ELSE NULL END ASC NULLS LAST,"
                 " printed_at DESC LIMIT 100",
                 (user["email"],),
             )
             rows = cur.fetchall()
     items = [dict(r) for r in rows]
     return {
+        "backlog":  [r for r in items if r["status"] == "backlog"],
         "progress": [r for r in items if r["status"] == "progress"],
         "done":     [r for r in items if r["status"] == "done"],
     }
+
+
+class JobTitleRequest(BaseModel):
+    title: str
+
+
+@app.patch("/jobs/{job_id}/progress")
+def mark_progress(job_id: int, user=Depends(require_auth)):
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE print_jobs SET status='progress', completed_at=NULL,"
+                " sort_order=COALESCE((SELECT MIN(sort_order)-1 FROM print_jobs"
+                " WHERE printed_by=%s AND status='progress'), 0)"
+                " WHERE id=%s AND printed_by=%s AND status='backlog'"
+                " RETURNING jira_key",
+                (user["email"], job_id, user["email"]),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Not found")
+            row = cur.fetchone()
+        conn.commit()
+
+    if row and row[0]:
+        cfg = get_user_jira_cfg(user["email"])
+        jira_client.mark_in_progress(row[0], cfg)
+
+    return {"ok": True}
+
+
+@app.patch("/jobs/{job_id}/backlog")
+def mark_backlog(job_id: int, user=Depends(require_auth)):
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE print_jobs SET status='backlog', completed_at=NULL,"
+                " sort_order=COALESCE((SELECT MIN(sort_order)-1 FROM print_jobs"
+                " WHERE printed_by=%s AND status='backlog'), 0)"
+                " WHERE id=%s AND printed_by=%s AND status='progress'"
+                " RETURNING jira_key",
+                (user["email"], job_id, user["email"]),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Not found")
+            row = cur.fetchone()
+        conn.commit()
+
+    if row and row[0]:
+        cfg = get_user_jira_cfg(user["email"])
+        jira_client.mark_backlog(row[0], cfg)
+
+    return {"ok": True}
+
+
+@app.patch("/jobs/{job_id}/title")
+def update_job_title(job_id: int, body: JobTitleRequest, user=Depends(require_auth)):
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE print_jobs SET title=%s WHERE id=%s AND printed_by=%s RETURNING jira_key",
+                (title, job_id, user["email"]),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Not found")
+            row = cur.fetchone()
+        conn.commit()
+
+    if row and row[0]:
+        cfg = get_user_jira_cfg(user["email"])
+        jira_client.update_summary(row[0], title, cfg)
+
+    return {"ok": True}
 
 
 @app.patch("/jobs/{job_id}/done")
@@ -384,7 +465,7 @@ def sync_jobs_from_jira(user=Depends(require_auth)):
         raise HTTPException(status_code=400, detail="JIRA_NOT_CONFIGURED")
 
     try:
-        items = jira_client.get_printer_items(cfg)
+        items = jira_client.get_printer_items(cfg, assignee_email=user["email"])
     except Exception as e:
         logger.error("sync-jira fetch error: %s", e)
         raise HTTPException(status_code=500, detail=f"Jira 조회 실패: {e}")
@@ -404,32 +485,63 @@ def sync_jobs_from_jira(user=Depends(require_auth)):
         with conn.cursor() as cur:
             for item in items:
                 jira_key  = item["key"]
-                new_status = "done" if item["status_done"] else "progress"
+                if item["status_done"]:
+                    new_status = "done"
+                elif item.get("status_category") == "indeterminate":
+                    new_status = "progress"
+                else:
+                    new_status = "backlog" if item.get("in_backlog") or item.get("status_category") == "new" else "progress"
                 completed  = now_kst if new_status == "done" else None
+                jira_type  = item.get("type")
 
                 if jira_key in existing:
-                    if existing[jira_key] != new_status:
+                    if existing[jira_key] == "backlog" and new_status == "progress":
                         cur.execute(
-                            "UPDATE print_jobs SET status=%s, completed_at=%s"
+                            "UPDATE print_jobs SET jira_type=%s"
                             " WHERE jira_key=%s AND printed_by=%s",
-                            (new_status, completed, jira_key, user["email"]),
+                            (jira_type, jira_key, user["email"]),
+                        )
+                    elif existing[jira_key] != new_status:
+                        cur.execute(
+                            "UPDATE print_jobs SET status=%s, completed_at=%s, jira_type=%s"
+                            " WHERE jira_key=%s AND printed_by=%s",
+                            (new_status, completed, jira_type, jira_key, user["email"]),
                         )
                         updated += 1
+                    else:
+                        # keep the type in sync even when the status is unchanged
+                        cur.execute(
+                            "UPDATE print_jobs SET jira_type=%s"
+                            " WHERE jira_key=%s AND printed_by=%s",
+                            (jira_type, jira_key, user["email"]),
+                        )
                 else:
                     cur.execute(
                         "INSERT INTO print_jobs"
-                        " (title, printed_by, status, sort_order, jira_key, completed_at)"
+                        " (title, printed_by, status, sort_order, jira_key, jira_type, completed_at)"
                         " VALUES (%s, %s, %s,"
                         "  COALESCE((SELECT MIN(sort_order)-1 FROM print_jobs p2"
-                        "            WHERE p2.printed_by=%s AND p2.status='progress'), 0),"
-                        "  %s, %s)",
+                        "            WHERE p2.printed_by=%s AND p2.status=%s), 0),"
+                        "  %s, %s, %s)",
                         (item["summary"], user["email"], new_status,
-                         user["email"], jira_key, completed),
+                         user["email"], new_status, jira_key, jira_type, completed),
                     )
                     inserted += 1
+
+        # Reconcile Jira backlog issues visible to this logged-in user into the local backlog column.
+        backlog_moved = 0
+        backlog = [item["key"] for item in items if item.get("in_backlog")]
+        if backlog:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE print_jobs SET status='backlog', completed_at=NULL"
+                    " WHERE printed_by=%s AND jira_key = ANY(%s) AND status <> 'backlog'",
+                    (user["email"], backlog),
+                )
+                backlog_moved = cur.rowcount
         conn.commit()
 
-    return {"inserted": inserted, "updated": updated, "total": len(items)}
+    return {"inserted": inserted, "updated": updated, "backlog_moved": backlog_moved, "removed": backlog_moved, "total": len(items)}
 
 
 @app.patch("/jobs/reorder")
@@ -644,16 +756,17 @@ def print_receipt(body: PrintRequest, user=Depends(require_auth)):
 
         # Create Jira issue for any user who has Jira configured in DB
         cfg = get_user_jira_cfg(user["email"])
-        jira_key = jira_client.create_issue(title, cfg) if cfg else None
+        jira_key = jira_client.create_issue(title, cfg, add_to_board=False, assignee_email=user["email"]) if cfg else None
+        jira_type = ("subtask" if cfg.ticket_mode == "SUBTASK" else "task") if cfg else None
 
         with get_db() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO print_jobs (title, printed_by, status, sort_order, jira_key)"
-                    " VALUES (%s, %s, 'progress',"
-                    "  COALESCE((SELECT MIN(sort_order)-1 FROM print_jobs WHERE printed_by=%s AND status='progress'), 0),"
-                    "  %s)",
-                    (title, user["email"], user["email"], jira_key),
+                    "INSERT INTO print_jobs (title, printed_by, status, sort_order, jira_key, jira_type)"
+                    " VALUES (%s, %s, 'backlog',"
+                    "  COALESCE((SELECT MIN(sort_order)-1 FROM print_jobs WHERE printed_by=%s AND status='backlog'), 0),"
+                    "  %s, %s)",
+                    (title, user["email"], user["email"], jira_key, jira_type),
                 )
             conn.commit()
 

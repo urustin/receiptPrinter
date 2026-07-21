@@ -7,12 +7,13 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/print');
 });
 
-test('칸반 3개 컬럼이 표시된다', async ({ page }) => {
+test('칸반 4개 컬럼이 표시된다', async ({ page }) => {
   const cols = page.locator('.column');
-  await expect(cols).toHaveCount(3);
+  await expect(cols).toHaveCount(4);
   await expect(page.locator('.col-title').nth(0)).toHaveText('Print');
-  await expect(page.locator('.col-title').nth(1)).toHaveText('In Progress');
-  await expect(page.locator('.col-title').nth(2)).toHaveText('Done');
+  await expect(page.locator('.col-title').nth(1)).toHaveText('Backlog');
+  await expect(page.locator('.col-title').nth(2)).toHaveText('In Progress');
+  await expect(page.locator('.col-title').nth(3)).toHaveText('Done');
 });
 
 test('프린트 입력창 placeholder가 "할일 #1"이다', async ({ page }) => {

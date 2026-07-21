@@ -89,14 +89,18 @@ async function loadBoard() {
   try {
     const res = await authFetch('/history');
     const data = await res.json();
-    renderList('progress-list', 'progress-count', data.progress, false);
-    renderList('done-list',     'done-count',     data.done,     true);
+    renderList('backlog-list',  'backlog-count',  data.backlog,  'backlog');
+    renderList('progress-list', 'progress-count', data.progress, 'progress');
+    renderList('done-list',     'done-count',     data.done,     'done');
   } catch {}
 }
 
-function renderList(listId, countId, items, isDone) {
+function renderList(listId, countId, items, status) {
   const list = document.getElementById(listId);
   const count = document.getElementById(countId);
+  const isBacklog = status === 'backlog';
+  const isProgress = status === 'progress';
+  const isDone = status === 'done';
   count.textContent = items.length;
 
   if (!items.length) {
@@ -105,8 +109,8 @@ function renderList(listId, countId, items, isDone) {
   }
 
   list.innerHTML = items.map(r => `
-    <li class="job-item ${isDone ? 'done-item' : ''}" data-id="${r.id}">
-      ${!isDone ? `<span class="drag-handle" title="Drag to reorder">
+    <li class="job-item ${isDone ? 'done-item' : (r.jira_type ? 'type-' + r.jira_type : '')}" data-id="${r.id}">
+      ${!isDone ? `<span class="drag-handle" title="${isBacklog ? 'Drag to In Progress' : 'Drag to reorder or Backlog'}">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <circle cx="9" cy="5"  r="1.5"/><circle cx="15" cy="5"  r="1.5"/>
           <circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/>
@@ -116,18 +120,23 @@ function renderList(listId, countId, items, isDone) {
       <span class="job-title">${escHtml(r.title)}</span>
       <span class="job-time">${formatDate(isDone ? (r.completed_at ?? r.printed_at) : r.printed_at)}</span>
       <div class="job-actions">
-        ${!isDone ? `<button class="btn-reprint" title="Print" onclick="reprintJob(${r.id})">
+        ${isProgress ? `<button class="btn-reprint" title="Print" onclick="reprintJob(${r.id})">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
           </svg>
         </button>` : ''}
-        ${!isDone ? `
+        ${isBacklog ? `<button class="btn-edit" title="Edit" onclick="editJob(${r.id})">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+          </svg>
+        </button>` : ''}
+        ${isProgress ? `
         <button class="btn-done" title="Mark done" onclick="markDone(${r.id})">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
             <polyline points="20 6 9 17 4 12"/>
           </svg>
-        </button>
-        <button class="btn-delete" title="Delete" onclick="deleteJob(${r.id})">
+        </button>` : ''}
+        ${!isDone ? `<button class="btn-delete" title="Delete" onclick="deleteJob(${r.id})">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
           </svg>
@@ -135,7 +144,8 @@ function renderList(listId, countId, items, isDone) {
       </div>
     </li>`).join('');
 
-  if (!isDone) initDrag(list);
+  if (isProgress) initDrag(list);
+  if (isBacklog) initBacklogDrag(list);
 }
 
 function escHtml(str) {
@@ -204,6 +214,40 @@ async function markDone(id) {
   } catch {}
 }
 
+// ── Move to progress ─────────────────────────────
+async function markProgress(id) {
+  try {
+    const res = await authFetch(`/jobs/${id}/progress`, { method: 'PATCH' });
+    if (res.ok) loadBoard();
+  } catch {}
+}
+
+// ── Move to backlog ──────────────────────────────
+async function markBacklog(id) {
+  try {
+    const res = await authFetch(`/jobs/${id}/backlog`, { method: 'PATCH' });
+    if (res.ok) loadBoard();
+  } catch {}
+}
+
+// ── Edit title ───────────────────────────────────
+async function editJob(id) {
+  const currentTitle = document.querySelector(`.job-item[data-id="${id}"] .job-title`)?.textContent || '';
+  const title = prompt('Edit title', currentTitle)?.trim();
+  if (!title || title === currentTitle) return;
+
+  try {
+    const res = await authFetch(`/jobs/${id}/title`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    });
+    if (res.ok) loadBoard();
+    else showToast('수정 실패', 'error');
+  } catch {
+    showToast('Connection error.', 'error');
+  }
+}
+
 // ── Delete ────────────────────────────────────────
 async function deleteJob(id) {
   try {
@@ -243,6 +287,7 @@ function initDrag(list) {
     document.body.appendChild(ghost);
 
     li.classList.add('drag-source');
+    document.getElementById('backlog-list')?.classList.add('drop-target');
 
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup',   onUp);
@@ -274,10 +319,22 @@ function initDrag(list) {
   function onUp(e) {
     document.removeEventListener('pointermove', onMove);
     document.removeEventListener('pointerup',   onUp);
+    document.getElementById('backlog-list')?.classList.remove('drop-target');
     if (!dragging) return;
+
+    const id = parseInt(dragging.dataset.id);
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const droppedOnBacklog = Boolean(el?.closest('#backlog-list'));
 
     ghost.remove();
     dragging.classList.remove('drag-source');
+
+    if (droppedOnBacklog) {
+      ghost = null;
+      dragging = null;
+      markBacklog(id);
+      return;
+    }
     list.querySelectorAll('.drop-above, .drop-below').forEach(el => {
       const isAbove = el.classList.contains('drop-above');
       el.classList.remove('drop-above', 'drop-below');
@@ -294,6 +351,66 @@ function initDrag(list) {
       method: 'PATCH',
       body: JSON.stringify({ ids }),
     }).catch(() => {});
+  }
+}
+
+function initBacklogDrag(list) {
+  let dragging = null;
+  let ghost = null;
+  let offsetX = 0, offsetY = 0;
+
+  list.querySelectorAll('.job-item').forEach(item => {
+    item.addEventListener('pointerdown', onDown);
+  });
+
+  function onDown(e) {
+    if (e.target.closest('button')) return;
+    e.preventDefault();
+    window.getSelection()?.removeAllRanges();
+    const li = e.currentTarget;
+    dragging = li;
+
+    const rect = li.getBoundingClientRect();
+    offsetX = e.clientX - rect.left;
+    offsetY = e.clientY - rect.top;
+
+    ghost = li.cloneNode(true);
+    ghost.classList.add('drag-ghost');
+    ghost.style.width = rect.width + 'px';
+    ghost.style.height = rect.height + 'px';
+    ghost.style.left = rect.left + 'px';
+    ghost.style.top = rect.top + window.scrollY + 'px';
+    document.body.appendChild(ghost);
+
+    li.classList.add('drag-source');
+    document.getElementById('progress-list')?.classList.add('drop-target');
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  }
+
+  function onMove(e) {
+    if (!dragging) return;
+    ghost.style.left = (e.clientX - offsetX) + 'px';
+    ghost.style.top = (e.clientY - offsetY + window.scrollY) + 'px';
+  }
+
+  function onUp(e) {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.getElementById('progress-list')?.classList.remove('drop-target');
+
+    if (!dragging) return;
+    const id = parseInt(dragging.dataset.id);
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const droppedOnProgress = Boolean(el?.closest('#progress-list'));
+
+    ghost.remove();
+    dragging.classList.remove('drag-source');
+    ghost = null;
+    dragging = null;
+
+    if (droppedOnProgress) markProgress(id);
   }
 }
 

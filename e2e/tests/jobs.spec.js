@@ -28,12 +28,14 @@ test('출력한 잡이 진행중 컬럼에 나타난다', async ({ page }) => {
 });
 
 // ── /history API ──────────────────────────────────
-test('/history API가 progress와 done 키를 반환한다', async ({ request: ctx }) => {
+test('/history API가 backlog, progress와 done 키를 반환한다', async ({ request: ctx }) => {
   const res = await apiRequest(ctx, 'GET', '/history');
   expect(res.ok()).toBeTruthy();
   const data = await res.json();
+  expect(data).toHaveProperty('backlog');
   expect(data).toHaveProperty('progress');
   expect(data).toHaveProperty('done');
+  expect(Array.isArray(data.backlog)).toBe(true);
   expect(Array.isArray(data.progress)).toBe(true);
   expect(Array.isArray(data.done)).toBe(true);
 });
@@ -42,7 +44,7 @@ test('/history API가 progress와 done 키를 반환한다', async ({ request: c
 test('/history는 인증된 사용자의 항목만 반환한다', async ({ request: ctx }) => {
   const res = await apiRequest(ctx, 'GET', '/history');
   const data = await res.json();
-  [...data.progress, ...data.done].forEach(item => {
+  [...data.backlog, ...data.progress, ...data.done].forEach(item => {
     expect(item).toHaveProperty('id');
     expect(item).toHaveProperty('title');
     expect(item).toHaveProperty('status');
@@ -72,7 +74,7 @@ test('PATCH /jobs/:id/done이 잡을 완료 상태로 이동시킨다', async ({
 // ── 삭제 ─────────────────────────────────────────
 test('DELETE /jobs/:id가 잡을 제거한다', async ({ request: ctx }) => {
   const hist = await (await apiRequest(ctx, 'GET', '/history')).json();
-  const allJobs = [...hist.progress, ...hist.done];
+  const allJobs = [...hist.backlog, ...hist.progress, ...hist.done];
   if (!allJobs.length) { test.skip(); return; }
 
   const job = allJobs[0];
@@ -80,14 +82,14 @@ test('DELETE /jobs/:id가 잡을 제거한다', async ({ request: ctx }) => {
   expect(res.ok()).toBeTruthy();
 
   const updated = await (await apiRequest(ctx, 'GET', '/history')).json();
-  const all = [...updated.progress, ...updated.done];
+  const all = [...updated.backlog, ...updated.progress, ...updated.done];
   expect(all.find(j => j.id === job.id)).toBeUndefined();
 });
 
 // ── 재출력 ───────────────────────────────────────
 test('POST /jobs/:id/reprint이 DB를 변경하지 않고 성공한다', async ({ request: ctx }) => {
   const hist = await (await apiRequest(ctx, 'GET', '/history')).json();
-  const allJobs = [...hist.progress, ...hist.done];
+  const allJobs = [...hist.backlog, ...hist.progress, ...hist.done];
   if (!allJobs.length) { test.skip(); return; }
 
   const job = allJobs[0];
@@ -96,7 +98,7 @@ test('POST /jobs/:id/reprint이 DB를 변경하지 않고 성공한다', async (
 
   // DB 변경 없음 확인
   const after = await (await apiRequest(ctx, 'GET', '/history')).json();
-  const found = [...after.progress, ...after.done].find(j => j.id === job.id);
+  const found = [...after.backlog, ...after.progress, ...after.done].find(j => j.id === job.id);
   expect(found).toBeDefined();
   expect(found.status).toBe(job.status);
 });

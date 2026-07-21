@@ -75,7 +75,7 @@ test('라이프사이클: 4개 삽입 → 2개 완료 → 2개 삭제 → 검증
 
     // 7. C, D가 사라졌는지 확인
     const hist3 = await (await apiRequest(ctx, 'GET', '/history')).json();
-    const allIds = [...hist3.progress, ...hist3.done].map(j => j.id);
+    const allIds = [...hist3.backlog, ...hist3.progress, ...hist3.done].map(j => j.id);
     expect(allIds).not.toContain(idC);
     expect(allIds).not.toContain(idD);
 
