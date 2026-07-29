@@ -110,13 +110,13 @@ function renderList(listId, countId, items, status) {
 
   list.innerHTML = items.map(r => `
     <li class="job-item ${isDone ? 'done-item' : (r.jira_type ? 'type-' + r.jira_type : '')}" data-id="${r.id}">
-      ${!isDone ? `<span class="drag-handle" title="${isBacklog ? 'Drag to In Progress' : 'Drag to reorder or Backlog'}">
+      <span class="drag-handle" title="Drag to reorder or move">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <circle cx="9" cy="5"  r="1.5"/><circle cx="15" cy="5"  r="1.5"/>
           <circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/>
           <circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/>
         </svg>
-      </span>` : ''}
+      </span>
       <span class="job-title">${escHtml(r.title)}</span>
       <span class="job-time">${formatDate(isDone ? (r.completed_at ?? r.printed_at) : r.printed_at)}</span>
       <div class="job-actions">
@@ -144,8 +144,7 @@ function renderList(listId, countId, items, status) {
       </div>
     </li>`).join('');
 
-  if (isProgress) initDrag(list);
-  if (isBacklog) initBacklogDrag(list);
+  initDrag(list, status);
 }
 
 function escHtml(str) {
@@ -257,7 +256,7 @@ async function deleteJob(id) {
 }
 
 // ── Drag to reorder (Pointer Events — mouse + touch) ──
-function initDrag(list) {
+function initDrag(list, status) {
   let dragging = null;   // the li being dragged
   let ghost    = null;   // floating clone
   let offsetX  = 0, offsetY = 0;
@@ -287,7 +286,9 @@ function initDrag(list) {
     document.body.appendChild(ghost);
 
     li.classList.add('drag-source');
-    document.getElementById('backlog-list')?.classList.add('drop-target');
+    document.querySelectorAll('.job-list').forEach(target => {
+      if (target !== list) target.classList.add('drop-target');
+    });
 
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup',   onUp);
@@ -319,20 +320,23 @@ function initDrag(list) {
   function onUp(e) {
     document.removeEventListener('pointermove', onMove);
     document.removeEventListener('pointerup',   onUp);
-    document.getElementById('backlog-list')?.classList.remove('drop-target');
+    document.querySelectorAll('.job-list').forEach(target => target.classList.remove('drop-target'));
     if (!dragging) return;
 
     const id = parseInt(dragging.dataset.id);
     const el = document.elementFromPoint(e.clientX, e.clientY);
-    const droppedOnBacklog = Boolean(el?.closest('#backlog-list'));
+    const targetList = el?.closest('.job-list');
+    const targetStatus = targetList?.id.replace('-list', '');
 
     ghost.remove();
     dragging.classList.remove('drag-source');
 
-    if (droppedOnBacklog) {
+    if (targetStatus && targetStatus !== status) {
       ghost = null;
       dragging = null;
-      markBacklog(id);
+      if (targetStatus === 'backlog') markBacklog(id);
+      if (targetStatus === 'progress') markProgress(id);
+      if (targetStatus === 'done') markDone(id);
       return;
     }
     list.querySelectorAll('.drop-above, .drop-below').forEach(el => {
@@ -349,68 +353,8 @@ function initDrag(list) {
     const ids = [...list.querySelectorAll('.job-item')].map(li => parseInt(li.dataset.id));
     authFetch('/jobs/reorder', {
       method: 'PATCH',
-      body: JSON.stringify({ ids }),
+      body: JSON.stringify({ ids, status }),
     }).catch(() => {});
-  }
-}
-
-function initBacklogDrag(list) {
-  let dragging = null;
-  let ghost = null;
-  let offsetX = 0, offsetY = 0;
-
-  list.querySelectorAll('.job-item').forEach(item => {
-    item.addEventListener('pointerdown', onDown);
-  });
-
-  function onDown(e) {
-    if (e.target.closest('button')) return;
-    e.preventDefault();
-    window.getSelection()?.removeAllRanges();
-    const li = e.currentTarget;
-    dragging = li;
-
-    const rect = li.getBoundingClientRect();
-    offsetX = e.clientX - rect.left;
-    offsetY = e.clientY - rect.top;
-
-    ghost = li.cloneNode(true);
-    ghost.classList.add('drag-ghost');
-    ghost.style.width = rect.width + 'px';
-    ghost.style.height = rect.height + 'px';
-    ghost.style.left = rect.left + 'px';
-    ghost.style.top = rect.top + window.scrollY + 'px';
-    document.body.appendChild(ghost);
-
-    li.classList.add('drag-source');
-    document.getElementById('progress-list')?.classList.add('drop-target');
-
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
-  }
-
-  function onMove(e) {
-    if (!dragging) return;
-    ghost.style.left = (e.clientX - offsetX) + 'px';
-    ghost.style.top = (e.clientY - offsetY + window.scrollY) + 'px';
-  }
-
-  function onUp(e) {
-    document.removeEventListener('pointermove', onMove);
-    document.removeEventListener('pointerup', onUp);
-    document.getElementById('progress-list')?.classList.remove('drop-target');
-
-    if (!dragging) return;
-    const id = parseInt(dragging.dataset.id);
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const droppedOnProgress = Boolean(el?.closest('#progress-list'));
-
-    ghost.remove();
-    dragging.classList.remove('drag-source');
-    ghost = null;
-    dragging = null;
-
-    if (droppedOnProgress) markProgress(id);
   }
 }
 

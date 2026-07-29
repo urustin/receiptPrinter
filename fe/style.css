@@ -252,13 +252,19 @@ body {
 
 #backlog-list .job-item {
   background: #fff8e1;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
 }
 
 #progress-list .job-item {
   background: hsl(145, 40%, 93%);
+}
+
+#done-list .job-item {
+  background: #f9f9fb;
+}
+
+#backlog-list .job-item,
+#progress-list .job-item,
+#done-list .job-item {
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -269,12 +275,15 @@ body {
 #backlog-list .job-item.type-subtask,
 #progress-list .job-item.type-subtask { background: hsl(145, 45%, 90%); }
 #backlog-list .job-item:active,
-#progress-list .job-item:active { cursor: grabbing; }
+#progress-list .job-item:active,
+#done-list .job-item:active { cursor: grabbing; }
 #backlog-list .job-item *,
-#progress-list .job-item * { cursor: inherit; }
+#progress-list .job-item *,
+#done-list .job-item * { cursor: inherit; }
 
 #backlog-list.drop-target,
-#progress-list.drop-target {
+#progress-list.drop-target,
+#done-list.drop-target {
   outline: 2px dashed #0071e3;
   outline-offset: 6px;
   border-radius: 10px;
@@ -306,7 +315,7 @@ body {
   height: 28px;
   border-radius: 7px;
   border: none;
-  cursor: pointer;
+  cursor: default !important;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -334,7 +343,7 @@ body {
 
 .btn-done {
   background: #d1f4e0;
-  color: #1a7f4b;
+  color: hsl(146, 51%, 40%);
 }
 .btn-done:hover { background: #a7f0c4; }
 

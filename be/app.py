@@ -320,7 +320,7 @@ def history(user=Depends(require_auth)):
                 " to_char(printed_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD HH24:MI') AS printed_at,"
                 " to_char(completed_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD HH24:MI') AS completed_at"
                 " FROM print_jobs WHERE printed_by = %s"
-                " ORDER BY CASE WHEN status IN ('backlog', 'progress') THEN sort_order ELSE NULL END ASC NULLS LAST,"
+                " ORDER BY sort_order ASC NULLS LAST,"
                 " printed_at DESC LIMIT 100",
                 (user["email"],),
             )
@@ -345,7 +345,7 @@ def mark_progress(job_id: int, user=Depends(require_auth)):
                 "UPDATE print_jobs SET status='progress', completed_at=NULL,"
                 " sort_order=COALESCE((SELECT MIN(sort_order)-1 FROM print_jobs"
                 " WHERE printed_by=%s AND status='progress'), 0)"
-                " WHERE id=%s AND printed_by=%s AND status='backlog'"
+                " WHERE id=%s AND printed_by=%s AND status<>'progress'"
                 " RETURNING jira_key",
                 (user["email"], job_id, user["email"]),
             )
@@ -369,7 +369,7 @@ def mark_backlog(job_id: int, user=Depends(require_auth)):
                 "UPDATE print_jobs SET status='backlog', completed_at=NULL,"
                 " sort_order=COALESCE((SELECT MIN(sort_order)-1 FROM print_jobs"
                 " WHERE printed_by=%s AND status='backlog'), 0)"
-                " WHERE id=%s AND printed_by=%s AND status='progress'"
+                " WHERE id=%s AND printed_by=%s AND status<>'backlog'"
                 " RETURNING jira_key",
                 (user["email"], job_id, user["email"]),
             )
@@ -414,9 +414,12 @@ def mark_done(job_id: int, user=Depends(require_auth)):
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE print_jobs SET status='done', completed_at=now() WHERE id=%s AND printed_by=%s"
+                "UPDATE print_jobs SET status='done', completed_at=now(),"
+                " sort_order=COALESCE((SELECT MIN(sort_order)-1 FROM print_jobs"
+                " WHERE printed_by=%s AND status='done'), 0)"
+                " WHERE id=%s AND printed_by=%s AND status<>'done'"
                 " RETURNING jira_key",
-                (job_id, user["email"]),
+                (user["email"], job_id, user["email"]),
             )
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Not found")
@@ -452,6 +455,7 @@ def delete_job(job_id: int, user=Depends(require_auth)):
 
 class ReorderRequest(BaseModel):
     ids: list[int]
+    status: str = "progress"
 
 
 @app.post("/jobs/sync-jira")
@@ -546,12 +550,14 @@ def sync_jobs_from_jira(user=Depends(require_auth)):
 
 @app.patch("/jobs/reorder")
 def reorder_jobs(body: ReorderRequest, user=Depends(require_auth)):
+    if body.status not in ("backlog", "progress", "done"):
+        raise HTTPException(status_code=400, detail="Invalid status")
     with get_db() as conn:
         with conn.cursor() as cur:
             for order, job_id in enumerate(body.ids):
                 cur.execute(
-                    "UPDATE print_jobs SET sort_order=%s WHERE id=%s AND printed_by=%s AND status='progress'",
-                    (order, job_id, user["email"]),
+                    "UPDATE print_jobs SET sort_order=%s WHERE id=%s AND printed_by=%s AND status=%s",
+                    (order, job_id, user["email"], body.status),
                 )
         conn.commit()
     return {"ok": True}
